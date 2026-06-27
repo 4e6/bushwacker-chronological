@@ -1,4 +1,4 @@
-You are running headless in CI to classify new videos from the @Bushwackerhistory
+You are running headless in CI to classify new videos from the Bushwackerhistory
 channel and update this repo's source-of-truth text files. A nightly detector has
 written the new uploads to `new_videos.json` in the repo root.
 
