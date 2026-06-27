@@ -1,9 +1,12 @@
-# Deterministic playlist writer. Makes the live YouTube playlist match
-# bushwacker_playlist.txt. No LLM. Manual-trigger only for now; later we add a
-# `push` trigger on the playlist file so it runs after a sync PR is merged.
+# Deterministic playlist writer — makes the live YouTube playlist match
+# bushwacker_playlist.txt. No LLM. Runs automatically after a merge to main that
+# changes the playlist file, and can also be run manually (dry-run by default).
 name: playlist-apply
 
 on:
+  push:
+    branches: [main]
+    paths: ['bushwacker_playlist.txt']   # only when the curated list changes
   workflow_dispatch:
     inputs:
       mode:
@@ -12,7 +15,7 @@ on:
         options: [dry-run, apply]
         default: dry-run
 
-# Least privilege: this job never needs to write the repo.
+# Least privilege: this job never writes the repo.
 permissions:
   contents: read
 
@@ -23,17 +26,17 @@ concurrency:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    # Before enabling real writes, create a `youtube-prod` Environment with a
-    # required reviewer, then uncomment the next line so applies need approval:
-    # environment: youtube-prod
+    # Gated by the youtube-prod environment (deployment branch restricted to main),
+    # so the write token is only usable from main.
+    environment: youtube-prod
     steps:
-      # TODO: pin to a commit SHA before this workflow handles real writes.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
-      - name: Sync playlist (${{ inputs.mode }})
+      - name: Sync playlist
         env:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
-          APPLY: ${{ inputs.mode == 'apply' && '1' || '' }}
+          # push (post-merge) → real write; manual dispatch → per the mode input
+          APPLY: ${{ (github.event_name == 'push' || inputs.mode == 'apply') && '1' || '' }}
         run: python3 scripts/yt_playlist_sync.py

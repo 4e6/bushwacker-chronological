@@ -20,8 +20,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      # TODO: pin all actions to a commit SHA before relying on this in prod.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       # Deterministic: RSS diff + Data API durations. Holds the YT_* token, but
       # runs no LLM and no untrusted code, so that's as safe as playlist-apply.
@@ -56,7 +55,7 @@ jobs:
       # Stable branch → idempotent: re-runs update the same PR instead of spamming.
       - name: Open / update sync PR
         if: steps.detect.outputs.has_new == 'true'
-        uses: peter-evans/create-pull-request@v7   # TODO: pin to SHA
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676  # v7
         with:
           branch: sync/auto
           base: main
