@@ -1,0 +1,16 @@
+# Transcripts / metadata fetched during sync (yt-dlp) — keep them out of the repo
+*.vtt
+*.srt
+*.info.json
+*.live_chat.json
+sub_*
+
+# Python
+__pycache__/
+*.pyc
+
+# OS / editor cruft
+.DS_Store
+*.swp
+*~
+Thumbs.db
