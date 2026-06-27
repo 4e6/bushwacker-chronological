@@ -1,0 +1,77 @@
+# Nightly: detect new channel uploads → classify with Claude → open a PR.
+# The PR edits only the source-of-truth text files. Writing to the live YouTube
+# playlist is a separate, gated job (playlist-apply.yml) that runs after you merge.
+name: nightly-sync
+
+on:
+  schedule:
+    - cron: "0 4 * * *"      # 04:00 UTC daily (adjust to taste)
+  workflow_dispatch:          # manual run for testing
+
+permissions:
+  contents: write             # push the sync branch
+  pull-requests: write        # open/update the PR
+
+concurrency:
+  group: nightly-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      # TODO: pin all actions to a commit SHA before relying on this in prod.
+      - uses: actions/checkout@v4
+
+      # Deterministic: RSS diff + Data API durations. Holds the YT_* token, but
+      # runs no LLM and no untrusted code, so that's as safe as playlist-apply.
+      - name: Detect new uploads
+        id: detect
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          OUT_JSON: ${{ github.workspace }}/new_videos.json
+        run: python3 scripts/detect_new.py
+
+      - name: Install Claude Code
+        if: steps.detect.outputs.has_new == 'true'
+        run: npm install -g @anthropic-ai/claude-code
+
+      # Claude only edits the local text files. Its env has ONLY its own token —
+      # never the YouTube secrets — and its tools are limited to file edits.
+      - name: Classify with Claude
+        if: steps.detect.outputs.has_new == 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          PROMPT="$(cat scripts/classify_prompt.md)
+
+          Run date (UTC): $(date -u +%F). New uploads are in new_videos.json."
+          claude -p "$PROMPT" \
+            --allowedTools "Read,Edit,Grep" \
+            --permission-mode acceptEdits
+
+      # Deterministic PR creation. Claude has no git/PR powers; this does it.
+      # Stable branch → idempotent: re-runs update the same PR instead of spamming.
+      - name: Open / update sync PR
+        if: steps.detect.outputs.has_new == 'true'
+        uses: peter-evans/create-pull-request@v7   # TODO: pin to SHA
+        with:
+          branch: sync/auto
+          base: main
+          title: "sync: classify new channel videos"
+          commit-message: "sync: classify new channel videos"
+          body: |
+            Automated classification of new @Bushwackerhistory uploads.
+
+            A detector found new videos and Claude proposed these edits to the
+            source-of-truth files. **Review the year / label / exclusions before
+            merging.** Titles can be misleading (duration decides SHORT vs episode).
+
+            Merging a change to `bushwacker_playlist.txt` triggers `playlist-apply`
+            to insert the episode into the live YouTube playlist.
+          add-paths: |
+            bushwacker_playlist.txt
+            bushwacker_excluded.txt
+          delete-branch: true

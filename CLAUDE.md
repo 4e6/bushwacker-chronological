@@ -62,7 +62,11 @@ For each new ID get its title/duration with:
 
 ### 2. Classify & date each new video
 
-- **Short trivia** — "Истфакт №N" / "Fact #N", duration ~100–330 s → **excluded (SHORT)**.
+- **Short — decide by DURATION FIRST, not title.** Anything under ~6 min (≲350 s) is a
+  SHORT regardless of how episode-like the title looks — incl. topical clips tagged like
+  `#англия #history` and even titles with date ranges (a 65 s "Великий западный раскол
+  (1378–1417)" is a Short, not an episode). The "Истфакт №N" / "Fact #N" trivia are one
+  subset → **excluded (SHORT)**.
 - **Meta / Q&A / broad non-period intro** — e.g. "Вне формата", "...ответы на вопросы",
   a series intro that isn't about one period → **excluded (META)**.
 - **Otherwise = a period episode** (full episodes run ~1.5–2.5 h, 5000–8000 s):
