@@ -3,7 +3,6 @@
 *.srt
 *.info.json
 *.live_chat.json
-sub_*
 
 # Python
 __pycache__/

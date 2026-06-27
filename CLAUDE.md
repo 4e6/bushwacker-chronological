@@ -7,12 +7,12 @@ is about** (ancient → modern), not by upload date.
 - YouTube playlist: **PLVw98VIsFGF8** — https://www.youtube.com/playlist?list=PLVw98VIsFGF8
   (owned by this Google account; currently **Public**).
 - Channel: https://www.youtube.com/@Bushwackerhistory (Russian-language history channel).
-- Baseline (2026-06-27): channel had **136** videos → **126** period videos in the
-  playlist + **10** excluded (7 shorts + 3 meta).
+- Baseline (2026-06-27): channel had **136** videos → **128** period videos in the
+  playlist + **8** excluded (7 shorts + 1 meta).
 
 Your job in a sync session: when the channel posts new videos, add the period
-ones to the playlist **in the correct chronological slot** and keep the two local
-files below in sync.
+ones to the playlist **in the correct chronological slot** and keep the local files
+below in sync.
 
 ## Files = source of truth
 
@@ -29,6 +29,10 @@ files below in sync.
   This exists so they aren't re-detected as "new" every sync.
 
 The video IDs in these two files together = every channel video already classified.
+
+- **`subtitles/`** — a full Russian-caption mirror (one `.ru.srt` per playlist video)
+  + `_index.tsv`. A parallel asset, **not** part of playlist membership — see
+  **Subtitles** below.
 
 ## Period sort key
 
@@ -71,7 +75,8 @@ For each new ID get its title/duration with:
       -o "sub_%(id)s.%(ext)s" "https://youtu.be/<ID>"
     ```
     Strip VTT to text and look at the first ~300 words + century/"до н.э."/year tokens.
-    Some videos have **no captions** — then infer from title + series context and note it.
+    Some videos have **no captions** — then transcribe locally with Whisper (see
+    **Subtitles** below) or, failing that, infer from title + series context.
 
 ### 3. Apply the change
 
@@ -80,6 +85,8 @@ For each new ID get its title/duration with:
    (between the two neighbours by year).
 2. Add it to the YouTube playlist and move it into that slot (see API below).
 3. Bump the header's `videos:` count and `last synced:` date.
+4. Generate its Russian subtitle into `subtitles/` + add an `_index.tsv` row (see
+   **Subtitles** below); stage with `git add -f` (`.srt` is gitignored).
 
 **Short / meta:** append a `[SHORT|META] <id> <title> — reason` line to
 `bushwacker_excluded.txt` and bump its `last synced:` date. (No playlist change.)
@@ -91,6 +98,45 @@ order, and no duplicates. **Do not trust anonymous yt-dlp or the web UI for the 
 list** — both cap at the **first 100** items and this playlist has >100. The
 authenticated `enumerate()` returns all of them.
 
+## Subtitles
+
+A full Russian-caption mirror of the playlist lives in **`subtitles/`** (committed):
+
+- **`subtitles/<video_id>.ru.srt`** — one SRT per playlist video (open format, any
+  player loads it). **128/128** covered as of 2026-06-27.
+- **`subtitles/_index.tsv`** — `year, video_id, source, srt_file, title` in playlist
+  order; the record of where each subtitle came from.
+
+`source` ∈ `yt-auto` (YouTube auto-captions, cleaned — **112**), `yt-manual` (uploaded
+subs — **1**), `whisper` (locally transcribed because YouTube had none — **15**).
+
+### Generate a subtitle for a new video — YouTube-first, Whisper fallback
+
+1. **Manual subs:** `yt-dlp --skip-download --write-subs --sub-langs "ru,ru-RU,ru.*"
+   --convert-subs srt -o "subtitles/%(id)s.%(ext)s" "https://youtu.be/<ID>"`. If a
+   `.ru.srt` lands → done (`yt-manual`).
+2. **Auto-captions:** same with `--write-auto-subs --sub-langs "ru-orig,ru"`. They come
+   "rolling" (overlapped duplicate lines, no punctuation) — clean them: drop <60 ms
+   cues, keep only lines new vs the previous cue (`yt-auto`).
+3. **No captions → Whisper:** grab audio (`-f bestaudio`) and transcribe locally with
+   **mlx-whisper**, model `mlx-community/whisper-large-v3-turbo` (~35× realtime on this
+   Mac; `pip install mlx-whisper` in a venv, model auto-downloads ~1.6 GB). Output SRT,
+   then run the same cleaner — it also collapses Whisper's trailing-silence
+   hallucination loops (`whisper`).
+
+Then add the `_index.tsv` row in chronological position.
+
+### Subtitle gotchas
+
+- **`.srt` is gitignored** (`*.srt`), so new subtitle files need **`git add -f
+  subtitles/<id>.ru.srt`**. The existing 128 are already tracked.
+- **Bulk re-fetching trips bot-detection** — YouTube's "confirm you're not a bot" after
+  ~100 back-to-back requests (rate-based, not per-video). Fine for one new video; for a
+  bulk pass, space requests (`--sleep-requests 1.5`, a few seconds between videos) and,
+  if still blocked, `--cookies-from-browser chrome` (the browser here is **Google
+  Chrome**). Per the standing preference, default to cookieless on public data and
+  **ask before extracting browser cookies**.
+
 ## YouTube playlist API (mutations need the logged-in browser)
 
 Playlist reads/writes use YouTube's internal InnerTube API from the user's
@@ -101,7 +147,7 @@ or exfiltrate it. **Verified working 2026-06-27.**
 
 > Preference: the user **declined** `yt-dlp --cookies-from-browser`. Keep reads
 > cookieless (plain yt-dlp on public data) and do writes through the in-browser
-> session. Ask before any browser-cookie extraction. Browser is **Chromium**.
+> session. Ask before any browser-cookie extraction. Browser is **Google Chrome**.
 
 Paste this helper in the page context on youtube.com:
 
