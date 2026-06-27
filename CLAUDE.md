@@ -108,8 +108,9 @@ authenticated `enumerate()` returns all of them.
 
 ## Automation (GitHub Actions)
 
-The sync above runs **automatically** — normally you just review & merge a PR. Two
-workflows implement it (the manual steps stay as the rules they follow + the fallback).
+The sync above runs **fully hands-off** — there is no human step. `nightly-sync.yml` does
+the whole loop in two jobs (`sync`, then `apply`); the manual steps above are the rules it
+follows + the fallback.
 
 **`.github/workflows/nightly-sync.yml`** — cron 04:00 UTC + manual `workflow_dispatch`:
 1. **`scripts/detect_new.py`** reads the channel **RSS feed**
@@ -119,16 +120,23 @@ workflows implement it (the manual steps stay as the rules they follow + the fal
 2. **`claude -p`** with **`scripts/classify_prompt.md`** classifies each new video
    (SHORT / META / period — **duration-first**) and edits the text files. The LLM only
    edits files: it never receives the YouTube token and has no network/Bash.
-3. **`peter-evans/create-pull-request`** opens/updates a PR on branch `sync/auto`.
+3. **`peter-evans/create-pull-request`** opens/updates a PR on branch `sync/auto`, then a
+   step **auto-merges it** (`gh pr merge`, GITHUB_TOKEN). The merged PRs are the change log.
 
-→ **You review & merge the PR. That is the human gate.**
+Job **`apply`** runs only when `bushwacker_playlist.txt` changed (a period episode was
+added): **`scripts/yt_playlist_sync.py`** (`APPLY=1`) inserts the new video at its
+chronological `position` via the Data API. Deterministic, no LLM. Gated by the
+**`youtube-prod`** environment (deployment branch = `main`). Shorts/META touch
+`excluded.txt` only → `apply` is skipped, nothing hits YouTube.
 
-**`.github/workflows/playlist-apply.yml`** — on push to `main` that changes
-`bushwacker_playlist.txt` (+ manual): **`scripts/yt_playlist_sync.py`** makes the live
-playlist match the file, inserting any missing video at its chronological `position` via
-the Data API. Deterministic, no LLM. Gated by the **`youtube-prod`** environment
-(deployment branch = `main` only). A Shorts-only merge touches `excluded.txt` only, so it
-doesn't trigger this.
+> Why `apply` runs *inside* nightly-sync (not via a push trigger): a merge done with the
+> built-in `GITHUB_TOKEN` **does not trigger other workflows**, so it can't rely on a
+> `push` event — it runs inline as its own gated job.
+
+**`.github/workflows/playlist-apply.yml`** is now a **manual / safety-net tool**: run it
+from the Actions tab (`dry-run` = read-only diff, `apply` = write), or it fires on a
+**human** push to `main` that changes `bushwacker_playlist.txt`. The bot's GITHUB_TOKEN
+merges don't trigger it → no double-apply.
 
 ### Secrets & config
 - Repo secrets: `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`), `YT_CLIENT_ID`,
@@ -136,21 +144,25 @@ doesn't trigger this.
   (durations) and the write (insert); re-mint it with `scripts/mint_youtube_token.py` if
   revoked. The Google OAuth consent screen must stay **"In production"** or the refresh
   token expires after 7 days.
-- `youtube-prod` environment: no secrets of its own (uses the repo secrets), no reviewer,
-  deployment branch locked to `main`.
+- `youtube-prod` environment: no secrets of its own (uses the repo secrets), **no reviewer**
+  (auto), deployment branch locked to `main`.
 - Repo settings: default workflow permissions **read-only**, "Allow Actions to create
   PRs" on, all actions pinned to commit SHAs.
+- **Do not enable branch protection that requires review** on `main` — it blocks the bot's
+  own auto-merge and silently breaks the loop. `main` is intentionally left unprotected.
 
 ### Operating it
-- **Normal:** a PR appears only when something is new → check the year/label/exclusion →
-  merge. If it changed the playlist, YouTube updates within ~1 min.
-- **Manual:** Actions → `nightly-sync` → Run; or `playlist-apply` → Run with mode
-  `dry-run` (read-only diff) / `apply`.
-- **First real insert:** watch the first period-episode apply in the Actions log — a live
-  `playlistItems.insert` is the one step not yet battle-tested. The apply script never
-  deletes, so the worst case is a misplaced entry, fixed by re-running.
-- **Not automated yet:** subtitles (run locally — see **Subtitles**). Low-confidence /
-  broad-span period calls get flagged in the PR for you to decide.
+- **Normal:** nothing to do. New video → nightly PR → auto-merged → (if a period episode)
+  YouTube updated within ~1 min. Skim the merged-PR list for the audit trail.
+- **No human gate:** a misclassification goes live. Recoverable — `yt_playlist_sync.py`
+  **never deletes** (worst case = a misplaced entry, fixed by a follow-up edit + re-apply);
+  duration-first makes Shorts reliable. Main exposure: a period episode with a wrong year.
+- **Manual:** Actions → `nightly-sync` → Run; or `playlist-apply` → Run (`dry-run`/`apply`).
+- **Watch the first real insert** (first period episode) in the Actions log — a live
+  `playlistItems.insert` is the one step not yet battle-tested.
+- **Not automated:** subtitles (run locally — see **Subtitles**).
+- **Optional safety valve:** gate the auto-merge so Shorts/META auto-merge but period-episode
+  PRs wait for a human glance (semi-auto). Not currently enabled.
 
 ## Subtitles
 
