@@ -1,0 +1,39 @@
+# Deterministic playlist writer. Makes the live YouTube playlist match
+# bushwacker_playlist.txt. No LLM. Manual-trigger only for now; later we add a
+# `push` trigger on the playlist file so it runs after a sync PR is merged.
+name: playlist-apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run (read-only, default) or apply (writes to the playlist)"
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+
+# Least privilege: this job never needs to write the repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: playlist-apply
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    # Before enabling real writes, create a `youtube-prod` Environment with a
+    # required reviewer, then uncomment the next line so applies need approval:
+    # environment: youtube-prod
+    steps:
+      # TODO: pin to a commit SHA before this workflow handles real writes.
+      - uses: actions/checkout@v4
+
+      - name: Sync playlist (${{ inputs.mode }})
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          APPLY: ${{ inputs.mode == 'apply' && '1' || '' }}
+        run: python3 scripts/yt_playlist_sync.py

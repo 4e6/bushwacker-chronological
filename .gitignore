@@ -7,9 +7,12 @@
 # Python
 __pycache__/
 *.pyc
+.venv/
 
 # OS / editor cruft
 .DS_Store
 *.swp
 *~
 Thumbs.db
+
+.env
