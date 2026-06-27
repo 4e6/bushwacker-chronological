@@ -1,16 +1,19 @@
-# Nightly: detect new channel uploads → classify with Claude → open a PR.
-# The PR edits only the source-of-truth text files. Writing to the live YouTube
-# playlist is a separate, gated job (playlist-apply.yml) that runs after you merge.
+# Nightly, fully hands-off: detect new uploads → classify with Claude → open a PR
+# → auto-merge it → apply to the live YouTube playlist. The merged PRs are the
+# change log. The classify step (LLM) never receives the YouTube token.
+#
+# Note: a GITHUB_TOKEN merge does NOT trigger other workflows, so the apply runs
+# inline here (as its own youtube-prod-gated job) rather than via playlist-apply.
 name: nightly-sync
 
 on:
   schedule:
-    - cron: "0 4 * * *"      # 04:00 UTC daily (adjust to taste)
-  workflow_dispatch:          # manual run for testing
+    - cron: "0 4 * * *"      # 04:00 UTC daily
+  workflow_dispatch:
 
 permissions:
-  contents: write             # push the sync branch
-  pull-requests: write        # open/update the PR
+  contents: write            # push the sync branch + merge
+  pull-requests: write       # open/merge the PR
 
 concurrency:
   group: nightly-sync
@@ -19,11 +22,12 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    outputs:
+      apply_needed: ${{ steps.changed.outputs.apply_needed }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
-      # Deterministic: RSS diff + Data API durations. Holds the YT_* token, but
-      # runs no LLM and no untrusted code, so that's as safe as playlist-apply.
+      # Deterministic: RSS diff + Data API durations. Holds YT_* but runs no LLM.
       - name: Detect new uploads
         id: detect
         env:
@@ -37,8 +41,7 @@ jobs:
         if: steps.detect.outputs.has_new == 'true'
         run: npm install -g @anthropic-ai/claude-code
 
-      # Claude only edits the local text files. Its env has ONLY its own token —
-      # never the YouTube secrets — and its tools are limited to file edits.
+      # Claude only edits the text files. Its env has ONLY its own token.
       - name: Classify with Claude
         if: steps.detect.outputs.has_new == 'true'
         env:
@@ -51,9 +54,20 @@ jobs:
             --allowedTools "Read,Edit,Grep" \
             --permission-mode acceptEdits
 
-      # Deterministic PR creation. Claude has no git/PR powers; this does it.
-      # Stable branch → idempotent: re-runs update the same PR instead of spamming.
-      - name: Open / update sync PR
+      # Apply to YouTube only when the curated playlist actually changed (a period
+      # episode was added). Shorts/META touch excluded.txt only → no YouTube write.
+      - name: Did the playlist change?
+        id: changed
+        if: steps.detect.outputs.has_new == 'true'
+        run: |
+          if git status --porcelain bushwacker_playlist.txt | grep -q .; then
+            echo "apply_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "apply_needed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open sync PR
+        id: cpr
         if: steps.detect.outputs.has_new == 'true'
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676  # v7
         with:
@@ -62,15 +76,45 @@ jobs:
           title: "sync: classify new channel videos"
           commit-message: "sync: classify new channel videos"
           body: |
-            Automated classification of new @Bushwackerhistory uploads.
-
-            A detector found new videos and Claude proposed these edits to the
-            source-of-truth files. **Review the year / label / exclusions before
-            merging.** Titles can be misleading (duration decides SHORT vs episode).
-
-            Merging a change to `bushwacker_playlist.txt` triggers `playlist-apply`
-            to insert the episode into the live YouTube playlist.
+            Automated classification of new @Bushwackerhistory uploads
+            (duration-first). **Auto-merged** — kept as the change log; the diff
+            shows the year / label / exclusions the bot chose.
           add-paths: |
             bushwacker_playlist.txt
             bushwacker_excluded.txt
           delete-branch: true
+
+      # Auto-merge. GITHUB_TOKEN can merge (branch protection is off). Retry while
+      # GitHub finishes computing mergeability right after creation.
+      - name: Auto-merge the sync PR
+        if: steps.detect.outputs.has_new == 'true' && steps.cpr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR="${{ steps.cpr.outputs.pull-request-number }}"
+          for i in 1 2 3 4 5 6; do
+            if gh pr merge "$PR" --merge --delete-branch; then
+              echo "merged PR #$PR"; exit 0
+            fi
+            echo "PR #$PR not mergeable yet (attempt $i) — waiting 10s…"; sleep 10
+          done
+          echo "::error::could not auto-merge PR #$PR"; exit 1
+
+  # Separate job so the write happens inside the youtube-prod environment
+  # (deployment branch = main). Runs only when a period episode was added.
+  apply:
+    needs: sync
+    if: needs.sync.outputs.apply_needed == 'true'
+    runs-on: ubuntu-latest
+    environment: youtube-prod
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: main           # post-merge HEAD, so it sees the new episode
+      - name: Apply to YouTube
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          APPLY: "1"
+        run: python3 scripts/yt_playlist_sync.py
