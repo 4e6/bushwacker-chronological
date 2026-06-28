@@ -84,8 +84,10 @@ jobs:
             bushwacker_excluded.txt
           delete-branch: true
 
-      # Auto-merge. GITHUB_TOKEN can merge (branch protection is off). Retry while
-      # GitHub finishes computing mergeability right after creation.
+      # Auto-merge via squash — the repo's ONLY enabled merge method (allow_merge_commit
+      # is off, so --merge fails with "Merge commits are not allowed on this repository").
+      # Branch protection is off, so GITHUB_TOKEN can merge. Retry ONLY the transient
+      # "mergeability still computing" state; fail fast & loud on any permanent error.
       - name: Auto-merge the sync PR
         if: steps.detect.outputs.has_new == 'true' && steps.cpr.outputs.pull-request-number
         env:
@@ -93,12 +95,19 @@ jobs:
         run: |
           PR="${{ steps.cpr.outputs.pull-request-number }}"
           for i in 1 2 3 4 5 6; do
-            if gh pr merge "$PR" --merge --delete-branch; then
+            if out="$(gh pr merge "$PR" --squash --delete-branch 2>&1)"; then
               echo "merged PR #$PR"; exit 0
             fi
-            echo "PR #$PR not mergeable yet (attempt $i) — waiting 10s…"; sleep 10
+            # Only "mergeability still being computed" is transient → retry. Anything else
+            # (merge method disabled, required review/checks) is permanent → fail now so the
+            # real error surfaces instead of being masked as "not mergeable yet".
+            if printf '%s\n' "$out" | grep -qiE 'not mergeable|unknown merge state|base branch was modified|try again'; then
+              echo "PR #$PR mergeability still computing (attempt $i) — waiting 10s…"; sleep 10
+            else
+              printf '%s\n' "$out"; echo "::error::PR #$PR merge failed (not retryable)"; exit 1
+            fi
           done
-          echo "::error::could not auto-merge PR #$PR"; exit 1
+          echo "::error::could not auto-merge PR #$PR after $i attempts"; exit 1
 
   # Separate job so the write happens inside the youtube-prod environment
   # (deployment branch = main). Runs only when a period episode was added.
