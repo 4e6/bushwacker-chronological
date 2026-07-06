@@ -93,8 +93,9 @@ For each new ID get its title/duration with:
    (between the two neighbours by year).
 2. Add it to the YouTube playlist and move it into that slot (see API below).
 3. Bump the header's `videos:` count and `last synced:` date.
-4. Generate its Russian subtitle into `subtitles/` + add an `_index.tsv` row (see
-   **Subtitles** below); stage with `git add -f` (`.srt` is gitignored).
+4. Fetch its Russian subtitle into `subtitles/` + an `_index.tsv` row —
+   `python3 scripts/fetch_subtitles.py` (self-healing; see **Subtitles** below). CI now
+   does this automatically; files under `subtitles/` are tracked (no `git add -f` needed).
 
 **Short / meta:** append a `[SHORT|META] <id> <title> — reason` line to
 `bushwacker_excluded.txt` and bump its `last synced:` date. (No playlist change.)
@@ -120,7 +121,13 @@ follows + the fallback.
 2. **`claude -p`** with **`scripts/classify_prompt.md`** classifies each new video
    (SHORT / META / period — **duration-first**) and edits the text files. The LLM only
    edits files: it never receives the YouTube token and has no network/Bash.
-3. **`peter-evans/create-pull-request`** opens/updates a PR on branch `sync/auto`, then a
+3. **`scripts/fetch_subtitles.py`** — only when a period episode was added — fetches the
+   new video's Russian captions from YouTube (manual subs, else auto-captions) as
+   YouTube's clean **srv1** timedtext, converts to `.ru.srt`, and updates
+   `subtitles/_index.tsv`. **Best-effort** (`continue-on-error`): yt-dlp can be
+   bot-blocked from datacenter IPs, so a failure just opens the PR without the `.srt` and
+   the gap is retried next episode / filled locally. No LLM, no YouTube token.
+4. **`peter-evans/create-pull-request`** opens/updates a PR on branch `sync/auto`, then a
    step **auto-merges it** (`gh pr merge`, GITHUB_TOKEN). The merged PRs are the change log.
 
 Job **`apply`** runs only when `bushwacker_playlist.txt` changed (a period episode was
@@ -160,7 +167,9 @@ merges don't trigger it → no double-apply.
 - **Manual:** Actions → `nightly-sync` → Run; or `playlist-apply` → Run (`dry-run`/`apply`).
 - **Watch the first real insert** (first period episode) in the Actions log — a live
   `playlistItems.insert` is the one step not yet battle-tested.
-- **Not automated:** subtitles (run locally — see **Subtitles**).
+- **Subtitles:** auto-fetched from YouTube (best-effort) into the sync PR when a period
+  episode is added — see **Subtitles**. Only the Whisper fallback (videos with *no*
+  YouTube captions) still runs locally.
 - **Optional safety valve:** gate the auto-merge so Shorts/META auto-merge but period-episode
   PRs wait for a human glance (semi-auto). Not currently enabled.
 
@@ -169,33 +178,37 @@ merges don't trigger it → no double-apply.
 A full Russian-caption mirror of the playlist lives in **`subtitles/`** (committed):
 
 - **`subtitles/<video_id>.ru.srt`** — one SRT per playlist video (open format, any
-  player loads it). **128/128** covered as of 2026-06-27.
+  player loads it). **129/129** covered as of 2026-07-06.
 - **`subtitles/_index.tsv`** — `year, video_id, source, srt_file, title` in playlist
   order; the record of where each subtitle came from.
 
-`source` ∈ `yt-auto` (YouTube auto-captions, cleaned — **112**), `yt-manual` (uploaded
+`source` ∈ `yt-auto` (YouTube auto-captions — **113**), `yt-manual` (uploaded
 subs — **1**), `whisper` (locally transcribed because YouTube had none — **15**).
 
 ### Generate a subtitle for a new video — YouTube-first, Whisper fallback
 
-1. **Manual subs:** `yt-dlp --skip-download --write-subs --sub-langs "ru,ru-RU,ru.*"
-   --convert-subs srt -o "subtitles/%(id)s.%(ext)s" "https://youtu.be/<ID>"`. If a
-   `.ru.srt` lands → done (`yt-manual`).
-2. **Auto-captions:** same with `--write-auto-subs --sub-langs "ru-orig,ru"`. They come
-   "rolling" (overlapped duplicate lines, no punctuation) — clean them: drop <60 ms
-   cues, keep only lines new vs the previous cue (`yt-auto`).
-3. **No captions → Whisper:** grab audio (`-f bestaudio`) and transcribe locally with
-   **mlx-whisper**, model `mlx-community/whisper-large-v3-turbo` (~35× realtime on this
-   Mac; `pip install mlx-whisper` in a venv, model auto-downloads ~1.6 GB). Output SRT,
-   then run the same cleaner — it also collapses Whisper's trailing-silence
-   hallucination loops (`whisper`).
+**`python3 scripts/fetch_subtitles.py`** does the YouTube half automatically (and is what
+CI runs): for every playlist video missing a `subtitles/<id>.ru.srt` it tries manual subs
+(`yt-manual`) then auto-captions (`yt-auto`), fetching YouTube's clean **srv1** timedtext
+(`--sub-format srv1` — one `<text start dur>segment</text>` per line, ~500 KB, *not* the
+2 MB "rolling" `.vtt`), converts it to SRT (unescape entities twice — srv1 is XML-over-HTML
+double-escaped — and clip overlapping cues to the next start), writes the file, and inserts
+the `_index.tsv` row in chronological position. Re-runnable and self-healing — it only
+touches videos that lack a subtitle. `DRY_RUN=1` previews; `ONLY=<id>` limits to one video.
 
-Then add the `_index.tsv` row in chronological position.
+**No YouTube captions → Whisper (local only):** the script can't do this — grab audio
+(`yt-dlp -f bestaudio`) and transcribe with **mlx-whisper**, model
+`mlx-community/whisper-large-v3-turbo` (~35× realtime on this Mac; `pip install mlx-whisper`
+in a venv, model auto-downloads ~1.6 GB). Save the SRT as `subtitles/<id>.ru.srt`, watch
+for Whisper's trailing-silence hallucination loops at the end, and add the `_index.tsv`
+row with `source = whisper`.
 
 ### Subtitle gotchas
 
-- **`.srt` is gitignored** (`*.srt`), so new subtitle files need **`git add -f
-  subtitles/<id>.ru.srt`**. The existing 128 are already tracked.
+- **`.srt` is gitignored globally** (`*.srt`) **except `subtitles/*.srt`** — a
+  `!subtitles/*.srt` negation in `.gitignore` un-ignores the mirror, so new subtitle files
+  are tracked with a plain `git add` (no more `git add -f`). Scratch `.srt` elsewhere stays
+  ignored.
 - **Bulk re-fetching trips bot-detection** — YouTube's "confirm you're not a bot" after
   ~100 back-to-back requests (rate-based, not per-video). Fine for one new video; for a
   bulk pass, space requests (`--sleep-requests 1.5`, a few seconds between videos) and,

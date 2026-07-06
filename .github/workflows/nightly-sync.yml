@@ -66,6 +66,26 @@ jobs:
             echo "apply_needed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # A period episode was added → fetch its Russian subtitle into subtitles/
+      # (self-healing: grabs any playlist video missing one, so a bot-blocked run
+      # is retried on the next episode). YouTube has no Data-API path to a third
+      # party's captions, so this uses yt-dlp, which CAN be bot-blocked from
+      # datacenter IPs — continue-on-error keeps that from failing the sync; the
+      # PR just opens without the .srt and the gap is filled later / locally.
+      # Whisper (for videos with no captions) stays local — see CLAUDE.md.
+      - name: Fetch subtitles (best-effort)
+        if: steps.changed.outputs.apply_needed == 'true'
+        continue-on-error: true
+        run: |
+          # Standalone yt-dlp binary (self-contained, always on PATH) — avoids the
+          # PEP-668 "externally-managed" pip breakage on the runner's system Python.
+          # Unpinned "latest" on purpose: yt-dlp must track YouTube's frequent changes.
+          sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+            -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
+          yt-dlp --version
+          python3 scripts/fetch_subtitles.py
+
       - name: Open sync PR
         id: cpr
         if: steps.detect.outputs.has_new == 'true'
@@ -82,6 +102,7 @@ jobs:
           add-paths: |
             bushwacker_playlist.txt
             bushwacker_excluded.txt
+            subtitles/
           delete-branch: true
 
       # Auto-merge via squash — the repo's ONLY enabled merge method (allow_merge_commit

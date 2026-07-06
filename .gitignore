@@ -3,6 +3,9 @@
 *.srt
 *.info.json
 *.live_chat.json
+# …except the committed subtitle mirror: these ARE tracked (auto-fetched by
+# scripts/fetch_subtitles.py), so no `git add -f` needed for new ones.
+!subtitles/*.srt
 
 # Python
 __pycache__/
