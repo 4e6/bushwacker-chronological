@@ -121,14 +121,19 @@ follows + the fallback.
 2. **`claude -p`** with **`scripts/classify_prompt.md`** classifies each new video
    (SHORT / META / period — **duration-first**) and edits the text files. The LLM only
    edits files: it never receives the YouTube token and has no network/Bash.
-3. **`scripts/fetch_subtitles.py`** — only when a period episode was added — fetches the
-   new video's Russian captions from YouTube (manual subs, else auto-captions) as
-   YouTube's clean **srv1** timedtext, converts to `.ru.srt`, and updates
-   `subtitles/_index.tsv`. **Best-effort** (`continue-on-error`): yt-dlp can be
-   bot-blocked from datacenter IPs, so a failure just opens the PR without the `.srt` and
-   the gap is retried next episode / filled locally. No LLM, no YouTube token.
-4. **`peter-evans/create-pull-request`** opens/updates a PR on branch `sync/auto`, then a
-   step **auto-merges it** (`gh pr merge`, GITHUB_TOKEN). The merged PRs are the change log.
+3. **`scripts/fetch_subtitles.py`** runs **every night** — driven by "is any playlist
+   video missing a `.ru.srt`?", *not* by has_new — and for each missing one fetches
+   Russian captions from YouTube (manual subs, else auto-captions) as YouTube's clean
+   **srv1** timedtext, converts to `.ru.srt`, and updates `subtitles/_index.tsv`.
+   **Best-effort** (`continue-on-error`): yt-dlp can be bot-blocked from datacenter IPs
+   (or a fresh upload's auto-captions aren't ready yet), so a failure just leaves the gap
+   — it's **retried on later runs until it lands**, even on a night with no new video. A
+   cheap `DRY_RUN` check gates whether the yt-dlp binary is downloaded at all. No LLM, no
+   YouTube token.
+4. **`peter-evans/create-pull-request`** opens a PR on branch `sync/auto` whenever
+   anything tracked changed — new-video classification *and/or* a backfilled subtitle (a
+   subtitles-only night gets its own `backfill missing subtitles` PR) — then a step
+   **auto-merges it** (`gh pr merge`, GITHUB_TOKEN). The merged PRs are the change log.
 
 Job **`apply`** runs only when `bushwacker_playlist.txt` changed (a period episode was
 added): **`scripts/yt_playlist_sync.py`** (`APPLY=1`) inserts the new video at its
@@ -167,9 +172,10 @@ merges don't trigger it → no double-apply.
 - **Manual:** Actions → `nightly-sync` → Run; or `playlist-apply` → Run (`dry-run`/`apply`).
 - **Watch the first real insert** (first period episode) in the Actions log — a live
   `playlistItems.insert` is the one step not yet battle-tested.
-- **Subtitles:** auto-fetched from YouTube (best-effort) into the sync PR when a period
-  episode is added — see **Subtitles**. Only the Whisper fallback (videos with *no*
-  YouTube captions) still runs locally.
+- **Subtitles:** auto-fetched from YouTube (best-effort) **every night** for any playlist
+  video missing one — retried until it lands, so a bot-blocked or not-yet-ready fetch
+  self-heals on a later run (a subtitles-only backfill opens its own auto-merged PR). See
+  **Subtitles**. Only the Whisper fallback (videos with *no* YouTube captions) runs locally.
 - **Optional safety valve:** gate the auto-merge so Shorts/META auto-merge but period-episode
   PRs wait for a human glance (semi-auto). Not currently enabled.
 

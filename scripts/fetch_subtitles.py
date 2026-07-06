@@ -238,6 +238,10 @@ def main():
     missing = [e for e in entries if not has_sub(e["id"])]
     print(f"playlist: {len(entries)} videos | with subtitle: "
           f"{len(entries) - len(missing)} | missing: {len(missing)}")
+    gh = os.environ.get("GITHUB_OUTPUT")   # let the workflow gate on the count
+    if gh:
+        with open(gh, "a") as f:
+            f.write(f"missing={len(missing)}\n")
     if ONLY:
         missing = [e for e in missing if e["id"] in ONLY]
     for e in missing:

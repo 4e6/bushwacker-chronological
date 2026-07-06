@@ -54,51 +54,71 @@ jobs:
             --allowedTools "Read,Edit,Grep" \
             --permission-mode acceptEdits
 
-      # Apply to YouTube only when the curated playlist actually changed (a period
-      # episode was added). Shorts/META touch excluded.txt only → no YouTube write.
-      - name: Did the playlist change?
-        id: changed
-        if: steps.detect.outputs.has_new == 'true'
-        run: |
-          if git status --porcelain bushwacker_playlist.txt | grep -q .; then
-            echo "apply_needed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "apply_needed=false" >> "$GITHUB_OUTPUT"
-          fi
+      # Subtitles are driven by "is any playlist video missing one?", NOT by has_new —
+      # so a fetch that failed before (bot-block, or auto-captions not ready yet on a
+      # fresh upload) is retried on later nightly runs until it lands, even on a night
+      # with no new video. Cheap DRY check first (pure Python, no network) so we only
+      # pull the yt-dlp binary when there's actually something to fetch. Both steps are
+      # continue-on-error, so the subtitle subsystem can never block the playlist sync.
+      - name: Check for missing subtitles
+        id: subs
+        continue-on-error: true
+        env:
+          DRY_RUN: "1"
+        run: python3 scripts/fetch_subtitles.py     # writes missing=<N> to $GITHUB_OUTPUT
 
-      # A period episode was added → fetch its Russian subtitle into subtitles/
-      # (self-healing: grabs any playlist video missing one, so a bot-blocked run
-      # is retried on the next episode). YouTube has no Data-API path to a third
-      # party's captions, so this uses yt-dlp, which CAN be bot-blocked from
-      # datacenter IPs — continue-on-error keeps that from failing the sync; the
-      # PR just opens without the .srt and the gap is filled later / locally.
-      # Whisper (for videos with no captions) stays local — see CLAUDE.md.
       - name: Fetch subtitles (best-effort)
-        if: steps.changed.outputs.apply_needed == 'true'
+        if: steps.subs.outputs.missing != '0'
         continue-on-error: true
         run: |
           # Standalone yt-dlp binary (self-contained, always on PATH) — avoids the
           # PEP-668 "externally-managed" pip breakage on the runner's system Python.
           # Unpinned "latest" on purpose: yt-dlp must track YouTube's frequent changes.
+          # YouTube has no Data-API path to a third party's captions, so this must use
+          # yt-dlp, which CAN be bot-blocked from datacenter IPs → a block just leaves the
+          # gap for the next night. Whisper (videos with no captions) stays local.
           sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
             -o /usr/local/bin/yt-dlp
           sudo chmod a+rx /usr/local/bin/yt-dlp
           yt-dlp --version
           python3 scripts/fetch_subtitles.py
 
+      # apply_needed → the curated playlist changed (a period episode was added) → the
+      # youtube-prod apply job runs (Shorts/META touch excluded.txt only → no write).
+      # pr_needed → ANYTHING tracked changed: classify's text edits and/or a freshly
+      # fetched subtitle (the retry case changes only subtitles/). Always runs, so a
+      # subtitles-only backfill on a no-new-video night still opens its own PR.
+      - name: Decide what changed
+        id: changed
+        run: |
+          if git status --porcelain bushwacker_playlist.txt | grep -q .; then
+            echo "apply_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "apply_needed=false" >> "$GITHUB_OUTPUT"
+          fi
+          if git status --porcelain bushwacker_playlist.txt bushwacker_excluded.txt | grep -q .; then
+            echo "pr_needed=true" >> "$GITHUB_OUTPUT"
+            echo "title=sync: classify new channel videos" >> "$GITHUB_OUTPUT"
+          elif git status --porcelain subtitles/ | grep -q .; then
+            echo "pr_needed=true" >> "$GITHUB_OUTPUT"
+            echo "title=sync: backfill missing subtitles" >> "$GITHUB_OUTPUT"
+          else
+            echo "pr_needed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Open sync PR
         id: cpr
-        if: steps.detect.outputs.has_new == 'true'
+        if: steps.changed.outputs.pr_needed == 'true'
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676  # v7
         with:
           branch: sync/auto
           base: main
-          title: "sync: classify new channel videos"
-          commit-message: "sync: classify new channel videos"
+          title: ${{ steps.changed.outputs.title }}
+          commit-message: ${{ steps.changed.outputs.title }}
           body: |
-            Automated classification of new @Bushwackerhistory uploads
-            (duration-first). **Auto-merged** — kept as the change log; the diff
-            shows the year / label / exclusions the bot chose.
+            Automated @Bushwackerhistory sync — new-video classification
+            (duration-first) and/or backfilled Russian subtitles. **Auto-merged** —
+            kept as the change log; the diff shows exactly what changed.
           add-paths: |
             bushwacker_playlist.txt
             bushwacker_excluded.txt
@@ -110,7 +130,7 @@ jobs:
       # Branch protection is off, so GITHUB_TOKEN can merge. Retry ONLY the transient
       # "mergeability still computing" state; fail fast & loud on any permanent error.
       - name: Auto-merge the sync PR
-        if: steps.detect.outputs.has_new == 'true' && steps.cpr.outputs.pull-request-number
+        if: steps.changed.outputs.pr_needed == 'true' && steps.cpr.outputs.pull-request-number
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
