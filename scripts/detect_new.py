@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """
 Detect channel uploads not yet classified in the repo. Reads the channel RSS
-feed (no API key, no yt-dlp → not bot-blocked) and diffs against the known IDs
-in bushwacker_playlist.txt + bushwacker_excluded.txt (the repo IS the state).
+feed (no API key, no yt-dlp) and diffs against the known IDs in
+bushwacker_playlist.txt + bushwacker_excluded.txt (the repo IS the state).
+
+The RSS feed intermittently 404s / times out for datacenter (CI) IPs; when it
+does, fall back to the Data API's uploads playlist (googleapis.com is not
+datacenter-blocked), and if BOTH are unreachable degrade to "no new" instead of
+crashing — a feed blip must never abort the nightly (the ID-diff is stable, so a
+genuinely missed upload is picked up on a later run).
 
 For each NEW id it enriches duration + description via the YouTube Data API
 (reusing the YT_* OAuth secrets) — duration is decisive for SHORT vs episode
@@ -21,6 +27,7 @@ import re
 import sys
 import json
 import html
+import time
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -50,9 +57,25 @@ def known_ids():
     return ids
 
 
-def feed_entries():
+def feed_entries(attempts=3):
+    """Channel uploads via the RSS feed (no auth, no quota). Returns the parsed
+    list, or None if the feed can't be fetched after `attempts` tries so the
+    caller can fall back to the Data API. YouTube's feeds endpoint intermittently
+    404s / times out for datacenter (CI) IPs — a bare urlopen here used to crash
+    the whole nightly job, so retry, then give up gracefully (not fatally)."""
     req = urllib.request.Request(FEED, headers={"User-Agent": "Mozilla/5.0 (playlist-sync)"})
-    xml = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "ignore")
+    xml = None
+    for i in range(attempts):
+        try:
+            xml = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "ignore")
+            break
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as ex:
+            code = getattr(ex, "code", ex.__class__.__name__)
+            print(f"  (RSS feed attempt {i + 1}/{attempts} failed: {code})")
+            if i < attempts - 1:
+                time.sleep(i + 1)
+    if xml is None:
+        return None
     out = []
     for m in re.finditer(r"<entry>(.*?)</entry>", xml, re.S):
         e = m.group(1)
@@ -86,6 +109,41 @@ def get_access_token():
         return None
 
 
+def uploads_via_api(token, max_results=50):
+    """Fallback upload list via the Data API's uploads playlist: every channel
+    UC… has a mirror uploads playlist UU…. googleapis.com is not datacenter-
+    blocked like the RSS/consumer surface, so this is the reliable path from CI.
+    Returns a list in feed_entries()'s shape, or None on failure / no creds."""
+    if not token:
+        return None
+    uploads = "UU" + CHANNEL_ID[2:]
+    url = ("https://www.googleapis.com/youtube/v3/playlistItems"
+           f"?part=snippet,contentDetails&maxResults={max_results}&playlistId={uploads}")
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        data = json.load(urllib.request.urlopen(req, timeout=30))
+    except urllib.error.HTTPError as e:
+        print(f"  (Data API uploads fallback failed: {e.code} {e.read().decode()[:200]})")
+        return None
+    except (urllib.error.URLError, TimeoutError) as e:
+        print(f"  (Data API uploads fallback failed: {e.__class__.__name__})")
+        return None
+    out = []
+    for it in data.get("items", []):
+        sn = it.get("snippet", {})
+        cd = it.get("contentDetails", {})
+        vid = sn.get("resourceId", {}).get("videoId") or cd.get("videoId")
+        if not vid:
+            continue
+        pub = (cd.get("videoPublishedAt") or sn.get("publishedAt") or "")[:10]
+        out.append({
+            "id": vid,
+            "title": html.unescape(sn.get("title", "") or "").strip(),
+            "published": pub,
+        })
+    return out
+
+
 def iso_to_seconds(s):
     m = re.match(r"^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$", s or "")
     if not m:
@@ -94,11 +152,10 @@ def iso_to_seconds(s):
     return h * 3600 + mi * 60 + se
 
 
-def enrich(new):
+def enrich(new, token):
     """Attach duration_s + description to each new video via the Data API."""
     if not new:
         return
-    token = get_access_token()
     if not token:
         print("  (no YT_* creds — durations unavailable; classification relies on title only)")
         return
@@ -125,11 +182,34 @@ def enrich(new):
 
 def main():
     known = known_ids()
-    entries = feed_entries()
-    new = [e for e in entries if e["id"] not in known]
-    enrich(new)
 
-    print(f"feed: {len(entries)} latest uploads | known: {len(known)} classified | NEW: {len(new)}")
+    # RSS is primary (no auth, no quota); on the intermittent datacenter-IP 404
+    # fall back to the Data API uploads playlist (reliable from CI), and if BOTH
+    # are unreachable degrade to "no new" + exit 0 so a feed blip never aborts the
+    # nightly (the ID-diff is stable — a genuinely missed upload is caught on a
+    # later run). The token is minted at most once, only when actually needed.
+    token = None
+    entries = feed_entries()
+    src = "RSS"
+    if entries is None:
+        token = get_access_token()
+        if token:
+            print("  RSS feed unavailable — falling back to the Data API uploads playlist")
+        entries = uploads_via_api(token)
+        src = "Data API uploads"
+    if entries is None:
+        msg = ("could not list channel uploads via RSS or Data API — treating as no "
+               "new videos this run (ID-diff is stable; retried on a later run)")
+        print(f"::warning::detect_new: {msg}" if os.environ.get("GITHUB_ACTIONS") else f"  ! {msg}")
+        entries = []
+        src = "unavailable"
+
+    new = [e for e in entries if e["id"] not in known]
+    if new and token is None:
+        token = get_access_token()
+    enrich(new, token)
+
+    print(f"feed[{src}]: {len(entries)} latest uploads | known: {len(known)} classified | NEW: {len(new)}")
     for e in new:
         d = e.get("duration_s")
         dtxt = f"{d}s" if d is not None else "?"
