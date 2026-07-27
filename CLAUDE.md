@@ -85,6 +85,10 @@ For each new ID get its title/duration with:
     Strip VTT to text and look at the first ~300 words + century/"до н.э."/year tokens.
     Some videos have **no captions** — then transcribe locally with Whisper (see
     **Subtitles** below) or, failing that, infer from title + series context.
+    **CI automates this**: `scripts/fetch_transcripts.py` puts the first ~15–20 min of
+    the episode's captions into `new_videos.json` as `transcript_intro` *before* the
+    classifier runs, so the bot dates ambiguous episodes the same way (auto-captions
+    garble exact numbers, so it reads the era described, not scraped digits).
 
 ### 3. Apply the change
 
@@ -118,20 +122,31 @@ follows + the fallback.
    (`channel_id=UCGzfpg1YiBIlgcODQI4lDvQ`), diffs against the IDs already in the two text
    files, and enriches each new id with **duration + description via the Data API** (RSS +
    API, *not* yt-dlp — datacenter IPs get bot-blocked). Skips the rest if nothing is new.
-2. **`claude -p`** with **`scripts/classify_prompt.md`** classifies each new video
-   (SHORT / META / period — **duration-first**) and edits the text files. The LLM only
-   edits files: it never receives the YouTube token and has no network/Bash.
-3. **`scripts/fetch_subtitles.py`** runs **every night** — driven by "is any playlist
+2. **`scripts/fetch_transcripts.py`** (deterministic, *before* the LLM) — for each new
+   *episode* (Shorts skipped by `duration_s`) fetches the Russian captions via
+   yt-dlp→Supadata and adds the **first ~15–20 min** to `new_videos.json` as
+   `transcript_intro`, so the classifier can pin a period's **start year** from the
+   video's own words — a wrong year is the loop's #1 error mode. Best-effort
+   (`continue-on-error`): no transcript → the field is simply absent and classification
+   falls back to title+description. The full SRT is cached (`.subs_cache/`) so step 4
+   reuses this one fetch (a single Supadata credit feeds both classification and the mirror).
+3. **`claude -p`** with **`scripts/classify_prompt.md`** classifies each new video
+   (SHORT / META / period — **duration-first**), using `transcript_intro` when present to
+   pin the start year, and edits the text files. The LLM only edits files: it never
+   receives the YouTube token and has no network/Bash, and treats every title,
+   description, and transcript as **untrusted data**.
+4. **`scripts/fetch_subtitles.py`** runs **every night** — driven by "is any playlist
    video missing a `.ru.srt`?", *not* by has_new — and for each missing one fetches
    Russian captions (manual subs, else auto-captions) as clean **srv1** timedtext,
-   converts to `.ru.srt`, and updates `subtitles/_index.tsv`. It tries **yt-dlp first**
-   (free) and, when that's bot-blocked, falls back to the **Supadata API** (`source =
+   converts to `.ru.srt`, and updates `subtitles/_index.tsv`. It **reuses the transcript
+   step 2 cached** for the new episode when present (no re-fetch); otherwise it tries
+   **yt-dlp first** (free) and, when that's bot-blocked, the **Supadata API** (`source =
    supadata`) — the *same* YouTube captions over an HTTP API that datacenter IPs can reach.
    **Best-effort** (`continue-on-error`): if both fail (or a fresh upload's auto-captions
    aren't ready yet) the gap is just **retried on later runs until it lands**, even on a
    night with no new video. A cheap `DRY_RUN` check gates whether the yt-dlp binary is
    downloaded at all. No LLM, no YouTube token; needs `SUPADATA_API_KEY` for the fallback.
-4. **`peter-evans/create-pull-request`** opens a PR on branch `sync/auto` whenever
+5. **`peter-evans/create-pull-request`** opens a PR on branch `sync/auto` whenever
    anything tracked changed — new-video classification *and/or* a backfilled subtitle (a
    subtitles-only night gets its own `backfill missing subtitles` PR) — then a step
    **auto-merges it** (`gh pr merge`, GITHUB_TOKEN). The merged PRs are the change log.
@@ -216,8 +231,11 @@ which map onto the same clip-to-next-start cue pipeline. Supadata is pinned to `
 (`auto`/`generate`, 2 credits per video-*minute* → a 2 h episode = 240 credits); videos with
 no captions anywhere fall through to free local Whisper instead, so ≤1 new video/month stays
 inside the free 100-credit tier. Set `SUPADATA_API_KEY` (env or `.env`) to enable it.
-Re-runnable and self-healing — it only touches videos that lack a subtitle. `DRY_RUN=1`
-previews; `ONLY=<id>` limits to one video.
+For a **new** episode the nightly already fetched its captions at classify time
+(`scripts/fetch_transcripts.py`, for the period-dating intro) and cached them in
+`.subs_cache/<id>.json`; this script **reuses that cache** instead of re-fetching, so a new
+upload costs a single Supadata call total. Re-runnable and self-healing — it only touches
+videos that lack a subtitle. `DRY_RUN=1` previews; `ONLY=<id>` limits to one video.
 
 **No YouTube captions → Whisper (local only):** the script can't do this — grab audio
 (`yt-dlp -f bestaudio`) and transcribe with **mlx-whisper**, model

@@ -19,8 +19,10 @@ timedtext format is instead one clean `<text start dur>segment</text>` per line
 robust XML→SRT convert. No fragile rolling de-duplication that could silently
 break when YouTube changes the vtt cadence (it already changed once).
 
-Fetch order per missing video: yt-dlp manual subs -> yt-dlp auto-captions (both
-free) -> the Supadata HTTP API (fallback). yt-dlp is primary because it's free
+Fetch order per missing video: a per-run cache (a transcript fetch_transcripts.py
+already fetched this run for the classifier — see SUBS_CACHE_DIR) -> yt-dlp manual
+subs -> yt-dlp auto-captions (both free) -> the Supadata HTTP API (fallback), so a
+new episode is fetched only once per night. yt-dlp is primary because it's free
 (YouTube exposes NO Data-API path to a third party's captions), but it CAN be
 bot-blocked from datacenter IPs (see CLAUDE.md — that's why detect_new.py avoids
 yt-dlp); in GitHub Actions it usually is. Supadata fetches the SAME YouTube
@@ -91,6 +93,10 @@ TIMEOUT = int(os.environ.get("YTDLP_TIMEOUT", "300"))
 SUPADATA_API = "https://api.supadata.ai/v1"
 SUPADATA_JOB_TIMEOUT = int(os.environ.get("SUPADATA_JOB_TIMEOUT", "180"))
 SUPADATA_POLL_INTERVAL = 4
+# Per-run transcript cache: fetch_transcripts.py stashes a new episode's SRT here
+# (one <id>.json per video) so this mirror reuses that single fetch — one Supadata
+# call feeds both the classify-time intro and the committed subtitle. Gitignored.
+SUBS_CACHE_DIR = os.environ.get("SUBS_CACHE_DIR") or os.path.join(PROJ, ".subs_cache")
 
 
 # ---------------------------------------------------------------- playlist ---
@@ -352,29 +358,61 @@ def _fetch_supadata(video_id):
 
 
 # ---------------------------------------------------------------- fetching ---
-def fetch(video_id):
-    """Return (source, srt_text, n_cues) or None. Order: yt-dlp manual → yt-dlp
-    auto (both free) → Supadata native (1 credit; the CI fallback for a bot-
-    blocked yt-dlp). None → no captions anywhere → local Whisper."""
+def _read_cache(video_id):
+    """Reuse a transcript fetch_transcripts.py already fetched this run (one fetch
+    feeds both the classify intro and this mirror). Returns (source, srt, n_cues)
+    or None. The cache carries the real provenance so _index.tsv stays honest."""
+    path = os.path.join(SUBS_CACHE_DIR, f"{video_id}.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except (FileNotFoundError, ValueError):
+        return None
+    srt = d.get("srt")
+    if not srt:
+        return None
+    print("    (reusing the transcript fetched for classification — no re-fetch)")
+    return d.get("source") or "supadata", srt, int(d.get("n") or srt.count(" --> "))
+
+
+def fetch_cues(video_id):
+    """Fetch Russian captions → (source, cues) or None, ALWAYS over the network.
+    Order: yt-dlp manual → yt-dlp auto (both free) → Supadata native (1 credit; the
+    CI fallback for a bot-blocked yt-dlp). None → no captions anywhere → Whisper.
+    The cache-first wrapper is fetch(); this is the raw fetch the transcript step
+    uses (and the source of what gets cached)."""
     res = None
     with tempfile.TemporaryDirectory() as tmp:
         man_dir = os.path.join(tmp, "man")
         os.makedirs(man_dir)
         cues, _ = _fetch_srv1(video_id, man_dir, ["ru", "ru-RU"], auto=False)
         if cues:
-            return "yt-manual", cues_to_srt(cues), len(cues)
+            return "yt-manual", cues
 
         auto_dir = os.path.join(tmp, "auto")
         os.makedirs(auto_dir)
         cues, res = _fetch_srv1(video_id, auto_dir, ["ru-orig", "ru"], auto=True)
         if cues:
-            return "yt-auto", cues_to_srt(cues), len(cues)
+            return "yt-auto", cues
     if _blocked(res):
         print("    (yt-dlp bot-blocked — likely a datacenter IP; trying Supadata)")
     cues = _fetch_supadata(video_id)
     if cues:
-        return "supadata", cues_to_srt(cues), len(cues)
+        return "supadata", cues
     return None
+
+
+def fetch(video_id):
+    """Return (source, srt_text, n_cues) or None. Cache-first (reuse the classify
+    step's fetch), else a fresh yt-dlp→Supadata fetch via fetch_cues()."""
+    cached = _read_cache(video_id)
+    if cached:
+        return cached
+    res = fetch_cues(video_id)
+    if not res:
+        return None
+    source, cues = res
+    return source, cues_to_srt(cues), len(cues)
 
 
 # ------------------------------------------------------------------- main ----

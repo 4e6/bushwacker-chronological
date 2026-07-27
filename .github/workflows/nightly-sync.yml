@@ -37,6 +37,22 @@ jobs:
           OUT_JSON: ${{ github.workspace }}/new_videos.json
         run: python3 scripts/detect_new.py
 
+      # Before classifying, fetch each new *episode's* captions and add the first
+      # ~15–20 min to new_videos.json as `transcript_intro`, so the LLM can pin the
+      # period's start year from the video's own words — a wrong year is the loop's #1
+      # error mode. Best-effort / continue-on-error: no transcript → the classifier
+      # falls back to title+description exactly as before, so this never gates the sync.
+      # Supadata does the fetch here (yt-dlp isn't installed yet and is usually blocked
+      # from CI); the SRT is cached (.subs_cache/) so the later subtitles step reuses
+      # this one fetch — a single Supadata credit feeds both classification and the mirror.
+      - name: Fetch transcripts for classification (best-effort)
+        if: steps.detect.outputs.has_new == 'true'
+        continue-on-error: true
+        env:
+          SUPADATA_API_KEY: ${{ secrets.SUPADATA_API_KEY }}
+          OUT_JSON: ${{ github.workspace }}/new_videos.json
+        run: python3 scripts/fetch_transcripts.py
+
       - name: Install Claude Code
         if: steps.detect.outputs.has_new == 'true'
         run: npm install -g @anthropic-ai/claude-code

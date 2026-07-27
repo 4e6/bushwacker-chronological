@@ -7,6 +7,11 @@
 # scripts/fetch_subtitles.py), so no `git add -f` needed for new ones.
 !subtitles/*.srt
 
+# Ephemeral per-run transcript cache: fetch_transcripts.py fetches a new episode's
+# captions for the classifier and stashes the SRT here so fetch_subtitles.py reuses
+# it (one Supadata call feeds both). Not committed — rebuilt each run.
+.subs_cache/
+
 # Python
 __pycache__/
 *.pyc
