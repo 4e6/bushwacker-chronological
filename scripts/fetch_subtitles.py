@@ -19,28 +19,44 @@ timedtext format is instead one clean `<text start dur>segment</text>` per line
 robust XML→SRT convert. No fragile rolling de-duplication that could silently
 break when YouTube changes the vtt cadence (it already changed once).
 
-Best-effort by design: YouTube exposes NO Data-API path to download a third
-party's captions, so this must use yt-dlp, which CAN be bot-blocked from
-datacenter IPs (see CLAUDE.md — that's why detect_new.py avoids yt-dlp). Any
-video whose captions can't be fetched — blocked, or none exist (→ needs local
-Whisper) — is left for a later run / the local fallback; the script still
-exits 0 so it never breaks the sync. Whisper is deliberately NOT run here (it
-needs a GPU + a 1.6 GB model); that stays local per CLAUDE.md "Subtitles".
+Fetch order per missing video: yt-dlp manual subs -> yt-dlp auto-captions (both
+free) -> the Supadata HTTP API (fallback). yt-dlp is primary because it's free
+(YouTube exposes NO Data-API path to a third party's captions), but it CAN be
+bot-blocked from datacenter IPs (see CLAUDE.md — that's why detect_new.py avoids
+yt-dlp); in GitHub Actions it usually is. Supadata fetches the SAME YouTube
+captions over an API that isn't IP-blocked — set SUPADATA_API_KEY (env or a local
+.env) to enable it. It is pinned to mode=native: existing captions only, ~1
+credit/call. It NEVER uses Supadata's AI transcription (mode=auto/generate — 2
+credits per video-MINUTE, so a single 2 h episode = 240 credits, well past the
+100-credit/month free tier); videos with no captions anywhere are transcribed for
+free by local Whisper instead.
+
+Best-effort by design: any video whose captions can't be fetched — yt-dlp
+blocked AND Supadata unset/unavailable, or none exist anywhere (→ needs local
+Whisper) — is left for a later run / the local fallback; the script still exits
+0 so it never breaks the sync. Whisper is deliberately NOT run here (it needs a
+GPU + a 1.6 GB model); that stays local per CLAUDE.md "Subtitles".
 
 Usage:
   python3 scripts/fetch_subtitles.py            # fetch every missing subtitle
   DRY_RUN=1 python3 scripts/fetch_subtitles.py  # just report what's missing
   ONLY=<id1,id2> python3 scripts/fetch_subtitles.py   # limit to specific ids
 
-Requires yt-dlp on PATH (pip install yt-dlp). Stdlib only otherwise.
+Requires yt-dlp on PATH for the free primary path (pip install yt-dlp) and, for
+the fallback, SUPADATA_API_KEY. Stdlib only otherwise.
 """
 import os
 import re
 import sys
 import glob
 import html
+import json
+import time
 import tempfile
 import subprocess
+import urllib.request
+import urllib.parse
+import urllib.error
 
 PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAYLIST_FILE = os.path.join(PROJ, "bushwacker_playlist.txt")
@@ -48,9 +64,33 @@ SUBS_DIR = os.path.join(PROJ, "subtitles")
 INDEX_FILE = os.path.join(SUBS_DIR, "_index.tsv")
 INDEX_HEADER = ["year", "video_id", "source", "srt_file", "title"]
 
+
+def _load_dotenv():
+    """Populate os.environ from a local .env (KEY=VALUE per line) for any key not
+    already set, so `SUPADATA_API_KEY=…` in .env works for local runs. Real env
+    vars (e.g. CI secrets) always win; missing .env is fine (CI has none — it's
+    gitignored). Stdlib-only, best-effort."""
+    try:
+        with open(os.path.join(PROJ, ".env"), encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    except FileNotFoundError:
+        pass
+
+
+_load_dotenv()
+
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 ONLY = {x for x in os.environ.get("ONLY", "").split(",") if x}
 TIMEOUT = int(os.environ.get("YTDLP_TIMEOUT", "300"))
+# Supadata fallback (mode=native only — see the module docstring / _fetch_supadata).
+SUPADATA_API = "https://api.supadata.ai/v1"
+SUPADATA_JOB_TIMEOUT = int(os.environ.get("SUPADATA_JOB_TIMEOUT", "180"))
+SUPADATA_POLL_INTERVAL = 4
 
 
 # ---------------------------------------------------------------- playlist ---
@@ -163,14 +203,24 @@ def cues_to_srt(cues):
 
 
 # ---------------------------------------------------------------- fetching ---
+_ytdlp_missing = False
+
+
 def _run_ytdlp(args):
+    """Run yt-dlp; None on timeout or if yt-dlp isn't installed. A missing binary
+    is noted once (not fatal) so the Supadata fallback can still run."""
+    global _ytdlp_missing
+    if _ytdlp_missing:
+        return None
     try:
         return subprocess.run(
             ["yt-dlp", "--no-warnings", "--no-progress", *args],
             capture_output=True, text=True, timeout=TIMEOUT,
         )
     except FileNotFoundError:
-        sys.exit("error: yt-dlp not found on PATH (pip install yt-dlp)")
+        _ytdlp_missing = True
+        print("    (yt-dlp not on PATH — relying on Supadata if configured)")
+        return None
     except subprocess.TimeoutExpired:
         return None
 
@@ -208,8 +258,105 @@ def _fetch_srv1(video_id, sub_dir, prefer, auto):
     return (cues if cues else None), res
 
 
+# -------------------------------------------------------------- supadata -----
+# Fallback for when yt-dlp is bot-blocked from a datacenter IP (the usual case in
+# CI): Supadata fetches the SAME YouTube captions over an HTTP API. Pinned to
+# mode=native — existing captions only, 1 credit/call. NEVER auto/generate, which
+# would run Supadata's own AI transcription at 2 credits per video-MINUTE (a 2 h
+# episode = 240 credits, past the 100-credit/month free tier); videos with no
+# captions go to free local Whisper instead. Long native transcripts return
+# synchronously (200); the async job path (202 -> poll, no extra credits) is
+# handled defensively. Stdlib urllib; never raises (best-effort like the rest).
+def _supadata_http(path):
+    """GET {SUPADATA_API}/{path} with the x-api-key header. Returns (status_code,
+    data) — data is parsed JSON (or {'_raw': …}) — or (None, None) with no key or
+    on a network error. Non-2xx (incl. 206) is returned, not raised."""
+    key = os.environ.get("SUPADATA_API_KEY")
+    if not key:
+        return None, None
+    req = urllib.request.Request(f"{SUPADATA_API}/{path}", headers={"x-api-key": key})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            code, body = r.getcode(), r.read().decode("utf-8", "ignore")
+    except urllib.error.HTTPError as e:
+        code, body = e.code, e.read().decode("utf-8", "ignore")
+    except (urllib.error.URLError, TimeoutError) as e:
+        print(f"    (supadata network error: {e.__class__.__name__})")
+        return None, None
+    try:
+        return code, json.loads(body)
+    except ValueError:
+        return code, {"_raw": body[:200]}
+
+
+def _supadata_cues(content):
+    """Supadata content array [{text, offset, duration}, …] -> non-overlapping
+    [start_ms, end_ms, text] cues (same shape/clipping as srv1_to_cues)."""
+    if not isinstance(content, list):
+        return None
+    cues = []
+    for seg in content:
+        text = re.sub(r"\s+", " ", (seg.get("text") or "")).strip()
+        if not text:
+            continue
+        off = int(seg.get("offset") or 0)
+        cues.append([off, off + int(seg.get("duration") or 0), text])
+    for i in range(len(cues) - 1):
+        if cues[i][1] > cues[i + 1][0]:
+            cues[i][1] = cues[i + 1][0]
+    return cues or None
+
+
+def _supadata_poll(job_id):
+    """Poll transcript/{job_id} until completed/failed or SUPADATA_JOB_TIMEOUT.
+    Status polls cost no credits. Returns the content array or None."""
+    deadline = time.monotonic() + SUPADATA_JOB_TIMEOUT
+    while time.monotonic() < deadline:
+        time.sleep(SUPADATA_POLL_INTERVAL)
+        _, data = _supadata_http(f"transcript/{job_id}")
+        if not data:
+            continue
+        status = data.get("status")
+        if status == "completed":
+            return data.get("content")
+        if status == "failed":
+            print(f"    (supadata job failed: {str(data.get('error') or '')[:120]})")
+            return None
+    print("    (supadata job timed out)")
+    return None
+
+
+def _fetch_supadata(video_id):
+    """Russian captions via Supadata native mode -> cues, or None. None = not
+    configured / no native captions (206) / error -> leave for Whisper."""
+    if not os.environ.get("SUPADATA_API_KEY"):
+        return None
+    q = urllib.parse.urlencode({
+        "url": f"https://youtu.be/{video_id}", "lang": "ru", "mode": "native",
+    })
+    code, data = _supadata_http(f"transcript?{q}")
+    if code is None:
+        return None
+    if code == 200:
+        content = (data or {}).get("content")
+    elif code == 202 and (data or {}).get("jobId"):
+        content = _supadata_poll(data["jobId"])
+    elif code == 206:
+        print("    (supadata: no native Russian captions — leave for Whisper)")
+        return None
+    else:
+        msg = (data or {}).get("error") or (data or {}).get("message") or (data or {}).get("_raw") or ""
+        print(f"    (supadata error {code}: {str(msg)[:120]})")
+        return None
+    return _supadata_cues(content)
+
+
+# ---------------------------------------------------------------- fetching ---
 def fetch(video_id):
-    """Return (source, srt_text, n_cues) or None. Manual subs win over auto."""
+    """Return (source, srt_text, n_cues) or None. Order: yt-dlp manual → yt-dlp
+    auto (both free) → Supadata native (1 credit; the CI fallback for a bot-
+    blocked yt-dlp). None → no captions anywhere → local Whisper."""
+    res = None
     with tempfile.TemporaryDirectory() as tmp:
         man_dir = os.path.join(tmp, "man")
         os.makedirs(man_dir)
@@ -222,8 +369,11 @@ def fetch(video_id):
         cues, res = _fetch_srv1(video_id, auto_dir, ["ru-orig", "ru"], auto=True)
         if cues:
             return "yt-auto", cues_to_srt(cues), len(cues)
-        if _blocked(res):
-            print("    (yt-dlp bot-blocked — likely a datacenter IP; retry later / run local)")
+    if _blocked(res):
+        print("    (yt-dlp bot-blocked — likely a datacenter IP; trying Supadata)")
+    cues = _fetch_supadata(video_id)
+    if cues:
+        return "supadata", cues_to_srt(cues), len(cues)
     return None
 
 

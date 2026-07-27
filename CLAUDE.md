@@ -123,13 +123,14 @@ follows + the fallback.
    edits files: it never receives the YouTube token and has no network/Bash.
 3. **`scripts/fetch_subtitles.py`** runs **every night** — driven by "is any playlist
    video missing a `.ru.srt`?", *not* by has_new — and for each missing one fetches
-   Russian captions from YouTube (manual subs, else auto-captions) as YouTube's clean
-   **srv1** timedtext, converts to `.ru.srt`, and updates `subtitles/_index.tsv`.
-   **Best-effort** (`continue-on-error`): yt-dlp can be bot-blocked from datacenter IPs
-   (or a fresh upload's auto-captions aren't ready yet), so a failure just leaves the gap
-   — it's **retried on later runs until it lands**, even on a night with no new video. A
-   cheap `DRY_RUN` check gates whether the yt-dlp binary is downloaded at all. No LLM, no
-   YouTube token.
+   Russian captions (manual subs, else auto-captions) as clean **srv1** timedtext,
+   converts to `.ru.srt`, and updates `subtitles/_index.tsv`. It tries **yt-dlp first**
+   (free) and, when that's bot-blocked, falls back to the **Supadata API** (`source =
+   supadata`) — the *same* YouTube captions over an HTTP API that datacenter IPs can reach.
+   **Best-effort** (`continue-on-error`): if both fail (or a fresh upload's auto-captions
+   aren't ready yet) the gap is just **retried on later runs until it lands**, even on a
+   night with no new video. A cheap `DRY_RUN` check gates whether the yt-dlp binary is
+   downloaded at all. No LLM, no YouTube token; needs `SUPADATA_API_KEY` for the fallback.
 4. **`peter-evans/create-pull-request`** opens a PR on branch `sync/auto` whenever
    anything tracked changed — new-video classification *and/or* a backfilled subtitle (a
    subtitles-only night gets its own `backfill missing subtitles` PR) — then a step
@@ -152,10 +153,14 @@ merges don't trigger it → no double-apply.
 
 ### Secrets & config
 - Repo secrets: `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`), `YT_CLIENT_ID`,
-  `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN`. The same `YT_*` OAuth token does both the read
-  (durations) and the write (insert); re-mint it with `scripts/mint_youtube_token.py` if
-  revoked. The Google OAuth consent screen must stay **"In production"** or the refresh
-  token expires after 7 days.
+  `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN`, and `SUPADATA_API_KEY`. The same `YT_*` OAuth
+  token does both the read (durations) and the write (insert); re-mint it with
+  `scripts/mint_youtube_token.py` if revoked. The Google OAuth consent screen must stay
+  **"In production"** or the refresh token expires after 7 days. `SUPADATA_API_KEY`
+  (https://supadata.ai) is the subtitle fallback — used **only** when yt-dlp is bot-blocked;
+  the script pins it to `mode=native` (~1 credit/fetch), so ≤1 new video/month stays inside
+  the free 100-credit/month tier. Locally it's read from `.env`; in CI it **must** be a repo
+  secret (add via `gh secret set SUPADATA_API_KEY`). If unset, the fallback is simply skipped.
 - `youtube-prod` environment: no secrets of its own (uses the repo secrets), **no reviewer**
   (auto), deployment branch locked to `main`.
 - Repo settings: default workflow permissions **read-only**, "Allow Actions to create
@@ -172,10 +177,11 @@ merges don't trigger it → no double-apply.
 - **Manual:** Actions → `nightly-sync` → Run; or `playlist-apply` → Run (`dry-run`/`apply`).
 - **Watch the first real insert** (first period episode) in the Actions log — a live
   `playlistItems.insert` is the one step not yet battle-tested.
-- **Subtitles:** auto-fetched from YouTube (best-effort) **every night** for any playlist
-  video missing one — retried until it lands, so a bot-blocked or not-yet-ready fetch
-  self-heals on a later run (a subtitles-only backfill opens its own auto-merged PR). See
-  **Subtitles**. Only the Whisper fallback (videos with *no* YouTube captions) runs locally.
+- **Subtitles:** auto-fetched (best-effort) **every night** for any playlist video missing
+  one — **yt-dlp first, then the Supadata API** when yt-dlp is bot-blocked — retried until
+  it lands, so a blocked or not-yet-ready fetch self-heals on a later run (a subtitles-only
+  backfill opens its own auto-merged PR). See **Subtitles**. Only the Whisper fallback
+  (videos with *no* YouTube captions at all) runs locally.
 - **Optional safety valve:** gate the auto-merge so Shorts/META auto-merge but period-episode
   PRs wait for a human glance (semi-auto). Not currently enabled.
 
@@ -184,12 +190,14 @@ merges don't trigger it → no double-apply.
 A full Russian-caption mirror of the playlist lives in **`subtitles/`** (committed):
 
 - **`subtitles/<video_id>.ru.srt`** — one SRT per playlist video (open format, any
-  player loads it). **129/129** covered as of 2026-07-06.
+  player loads it). **130/130** covered as of 2026-07-27.
 - **`subtitles/_index.tsv`** — `year, video_id, source, srt_file, title` in playlist
   order; the record of where each subtitle came from.
 
-`source` ∈ `yt-auto` (YouTube auto-captions — **113**), `yt-manual` (uploaded
-subs — **1**), `whisper` (locally transcribed because YouTube had none — **15**).
+`source` ∈ `yt-auto` (YouTube auto-captions via yt-dlp — **114**), `yt-manual` (uploaded
+subs — **1**), `supadata` (YouTube captions via the Supadata API, the fallback when yt-dlp
+is bot-blocked — **0** so far), `whisper` (locally transcribed because YouTube had none —
+**15**).
 
 ### Generate a subtitle for a new video — YouTube-first, Whisper fallback
 
@@ -199,8 +207,17 @@ CI runs): for every playlist video missing a `subtitles/<id>.ru.srt` it tries ma
 (`--sub-format srv1` — one `<text start dur>segment</text>` per line, ~500 KB, *not* the
 2 MB "rolling" `.vtt`), converts it to SRT (unescape entities twice — srv1 is XML-over-HTML
 double-escaped — and clip overlapping cues to the next start), writes the file, and inserts
-the `_index.tsv` row in chronological position. Re-runnable and self-healing — it only
-touches videos that lack a subtitle. `DRY_RUN=1` previews; `ONLY=<id>` limits to one video.
+the `_index.tsv` row in chronological position. **If yt-dlp is bot-blocked** (the usual case
+from CI / datacenter IPs), it falls back to the **Supadata API** (`GET /v1/transcript?url=…
+&lang=ru&mode=native`, `x-api-key` header) for the same YouTube captions and records
+`source = supadata`; Supadata returns the segments as `{text, offset(ms), duration(ms)}`,
+which map onto the same clip-to-next-start cue pipeline. Supadata is pinned to `mode=native`
+— existing captions only, ~1 credit/call — and **never** its AI-transcription modes
+(`auto`/`generate`, 2 credits per video-*minute* → a 2 h episode = 240 credits); videos with
+no captions anywhere fall through to free local Whisper instead, so ≤1 new video/month stays
+inside the free 100-credit tier. Set `SUPADATA_API_KEY` (env or `.env`) to enable it.
+Re-runnable and self-healing — it only touches videos that lack a subtitle. `DRY_RUN=1`
+previews; `ONLY=<id>` limits to one video.
 
 **No YouTube captions → Whisper (local only):** the script can't do this — grab audio
 (`yt-dlp -f bestaudio`) and transcribe with **mlx-whisper**, model
@@ -220,7 +237,9 @@ row with `source = whisper`.
   bulk pass, space requests (`--sleep-requests 1.5`, a few seconds between videos) and,
   if still blocked, `--cookies-from-browser chrome` (the browser here is **Google
   Chrome**). Per the standing preference, default to cookieless on public data and
-  **ask before extracting browser cookies**.
+  **ask before extracting browser cookies**. (The Supadata fallback isn't IP-blocked, but
+  it's **not** for bulk re-fetch — every call spends a credit, so keep it to the ≤1
+  missing video/night the nightly actually needs.)
 
 ## YouTube playlist API (mutations need the logged-in browser)
 

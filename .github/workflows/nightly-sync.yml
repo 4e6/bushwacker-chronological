@@ -70,13 +70,22 @@ jobs:
       - name: Fetch subtitles (best-effort)
         if: steps.subs.outputs.missing != '0'
         continue-on-error: true
+        env:
+          # Fallback caption source for when yt-dlp is bot-blocked from the runner's
+          # datacenter IP (the usual case here). The script pins Supadata to mode=native
+          # (existing captions only, ~1 credit/call; NEVER its 2-credits/min AI
+          # transcription), so with ≤1 new video/month this stays inside the free tier.
+          # Optional: if the secret is unset it renders empty and the script skips Supadata.
+          SUPADATA_API_KEY: ${{ secrets.SUPADATA_API_KEY }}
         run: |
-          # Standalone yt-dlp binary (self-contained, always on PATH) — avoids the
-          # PEP-668 "externally-managed" pip breakage on the runner's system Python.
-          # Unpinned "latest" on purpose: yt-dlp must track YouTube's frequent changes.
-          # YouTube has no Data-API path to a third party's captions, so this must use
-          # yt-dlp, which CAN be bot-blocked from datacenter IPs → a block just leaves the
-          # gap for the next night. Whisper (videos with no captions) stays local.
+          # Primary (free) path: yt-dlp, for the SAME YouTube captions Supadata fetches.
+          # Standalone binary (self-contained, always on PATH) — avoids the PEP-668
+          # "externally-managed" pip breakage on the runner's system Python. Unpinned
+          # "latest" on purpose: yt-dlp must track YouTube's frequent changes. YouTube
+          # has no Data-API path to a third party's captions, and yt-dlp CAN be
+          # bot-blocked from datacenter IPs → the script then falls back to Supadata's
+          # HTTP API (not IP-blocked). Videos with NO captions anywhere stay for local
+          # Whisper; a total failure just leaves the gap for the next night's retry.
           sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
             -o /usr/local/bin/yt-dlp
           sudo chmod a+rx /usr/local/bin/yt-dlp
