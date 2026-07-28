@@ -25,7 +25,7 @@ jobs:
     outputs:
       apply_needed: ${{ steps.changed.outputs.apply_needed }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
 
       # Deterministic: RSS diff + Data API durations. Holds YT_* but runs no LLM.
       - name: Detect new uploads
@@ -134,7 +134,7 @@ jobs:
       - name: Open sync PR
         id: cpr
         if: steps.changed.outputs.pr_needed == 'true'
-        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676  # v7
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8
         with:
           branch: sync/auto
           base: main
@@ -183,7 +183,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: youtube-prod
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           ref: main           # post-merge HEAD, so it sees the new episode
       - name: Apply to YouTube
