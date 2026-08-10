@@ -20,12 +20,13 @@ chronologically ascending. Each entry is 3 lines:
 The `watch?v=<id>` lines are the authoritative record of playlist membership. A
 header carries the `videos:` count and `last synced:` date.
 
-`last synced:` (present in **both** files) means *the sync last verified this file
-against the channel* — not "the contents last changed". The classifier bumps it
-when it edits a file, and `touch_last_synced.py` bumps it monthly otherwise, which
-is also what keeps the nightly's cron
-[from being auto-disabled](/architecture/nightly-sync.md#job-keepalive). Nothing
-parses it; it is informational.
+`last synced:` (present in **both** files) is *the date the sync loop last touched
+this file* — the classifier bumps it when it edits one, and the
+[keepalive](/architecture/keepalive.md) bumps it monthly otherwise. It is **not**
+evidence that a sync succeeded that day: the keepalive writes it unconditionally
+and never runs `detect_new.py`, so during a run of failing nights the date still
+advances. For "did the sync actually work", read the workflow runs or ops-watch.
+Nothing parses the field; it is informational.
 
 # bushwacker_excluded.txt
 

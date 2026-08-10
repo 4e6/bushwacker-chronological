@@ -39,21 +39,29 @@ loop would switch itself off exactly when it is about to be needed.
 
 Two things stop that being silent:
 
-- **Prevention** — the `keepalive` job (cron `41 5 1 * *`) bumps `last synced:` in
-  both [source files](/domain/source-files.md) once a month, ~30 days of slack
-  against the deadline. Monthly is deliberate but thin: `schedule` is best-effort
-  and GitHub drops ticks under load, so a dropped firing lands near the line.
+- **Prevention** — the monthly [keepalive](/architecture/keepalive.md) commits a
+  heartbeat, ~30 days of slack against the deadline.
 - **Detection** — ops-watch's `gha-nightly-sync` check alerts on
   `workflow_disabled` (and `overdue`) every 15 minutes.
 
-Recovery, if it is ever disabled: `gh workflow enable nightly-sync.yml` then
-`gh workflow run nightly-sync.yml`. Nothing is lost — detection is a set-difference
-against the two files ([source of truth](/decisions/0001-files-as-source-of-truth.md)),
-so a missed upload is simply picked up on the next run.
+Recovery, if it is disabled anyway:
+
+```
+gh workflow enable nightly-sync.yml && gh workflow enable keepalive.yml
+gh workflow run keepalive.yml      # commits — this is what resets the 60-day clock
+gh workflow run nightly-sync.yml   # catches up on anything uploaded meanwhile
+```
+
+Enable **both**: the disable hits every scheduled workflow, and re-enabling only
+the nightly leaves nothing to reset the clock. Nothing is lost by an outage —
+detection is a set-difference against the two files
+([source of truth](/decisions/0001-files-as-source-of-truth.md)), so a missed
+upload is simply picked up on the next run.
 
 > **Gotcha:** the disable takes the **whole workflow**, not just its schedule —
 > `workflow_dispatch` is blocked too, so "Manual runs" above will not work until
-> you re-enable it.
+> you re-enable it. Note `gh workflow run nightly-sync.yml` on its own commits
+> nothing on a quiet channel, so it does **not** count as activity.
 
 # Secrets & settings
 

@@ -8,13 +8,14 @@ changes nothing either. A quiet month is therefore a month with zero commits, so
 without this the nightly switches itself off mid-drought — and the upload that
 ends the drought is precisely the one it would then miss. @Bushwackerhistory has
 gone quiet for 76 days (Dec 2025–Mar 2026) and 67 days (Apr–Jul 2026), so this is
-the normal case, not the edge case. Called monthly by nightly-sync's `keepalive`
-job; ops-watch's `gha-nightly-sync` check is the backstop if it ever fails.
+the normal case, not the edge case. Called monthly by keepalive.yml; ops-watch's
+`gha-nightly-sync` check is the backstop if it ever fails.
 
-Writing the header date is bookkeeping the files already promise rather than a
-dummy commit: `last synced:` is only ever bumped today when the *contents* change,
-so it understates the truth — the nightly has verified these files against the
-channel every night since. This makes it mean what it says.
+Writing the header date is bookkeeping the files already carry rather than a dummy
+commit: `last synced:` is otherwise only bumped when the *contents* change, which
+understates how often the loop actually touches these files. Note what it does NOT
+claim — this runs no `detect_new.py`, so the date advancing is not evidence that a
+sync succeeded that day (see .wiki/domain/source-files.md).
 
 No-op (exit 0, nothing written) if both files already carry today's date, so
 running it twice in a day produces no second commit.
@@ -31,7 +32,7 @@ PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILES = ("bushwacker_playlist.txt", "bushwacker_excluded.txt")
 # Both headers carry "Последняя синхронизация / last synced: YYYY-MM-DD" — the
 # playlist's line also holds the `videos:` count, so anchor on the English half.
-DATE_RE = re.compile(r"(last synced:\s*)(\d{4}-\d{2}-\d{2})")
+DATE_RE = re.compile(r"(last synced:[ \t]*)(\d{4}-\d{2}-\d{2})")
 
 
 def main() -> int:

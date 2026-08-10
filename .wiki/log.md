@@ -1,13 +1,14 @@
 # Update Log
 
 ## 2026-08-10
-* **Change**: The [nightly](/architecture/nightly-sync.md) gained a monthly
-  `keepalive` job. This repo is public, so GitHub disables its cron after 60 days
-  of no commits — and a channel drought (76 days Dec 2025–Mar 2026, 67 days
-  Apr–Jul 2026) produces none. The job bumps the
+* **Change**: New [keepalive](/architecture/keepalive.md) module — a monthly
+  heartbeat commit. This repo is public, so GitHub disables its crons after 60
+  days of no commits, and a channel drought (76 days Dec 2025–Mar 2026, 67 days
+  Apr–Jul 2026) produces none. It bumps the
   [`last synced:` header](/domain/source-files.md), whose meaning is now stated
-  explicitly: *last verified against the channel*, not *last changed*. Failure
-  modes and recovery:
+  explicitly — *last touched by the sync loop*, and **not** evidence that a sync
+  succeeded. Kept in its own workflow file so a green keepalive run cannot mask a
+  failed nightly from ops-watch. Failure modes and recovery:
   [operating the nightly](/playbooks/operating-the-nightly.md#if-the-nightly-stops-running-at-all).
 
 ## 2026-07-27
