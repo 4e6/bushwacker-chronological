@@ -47,7 +47,6 @@ Shorts/meta touch `excluded.txt` only → `apply` is skipped, nothing hits YouTu
 `apply` runs *inline* here rather than on a push trigger because
 [GITHUB_TOKEN merges don't trigger workflows](/decisions/0003-apply-inline-and-unprotected-main.md).
 
-
 # Boundaries
 
 - The classifier never holds the YouTube token; only `detect_new.py` and the

@@ -52,10 +52,14 @@ they also drop the cron literal from three places to one.
   `schedule` is best-effort** — GitHub delays and drops ticks under load, so a
   dropped firing lands near the line. Accepted, because of the ops-watch backstop
   above.
-- **`actions/checkout` pins to the SHA from when the run was created**, so `main`
-  can move underneath it (the nightly merging its sync PR, or a human push). The
-  job therefore fetches and resets to a fresh `main` inside a retry loop; a
-  rejected push is a lost race, never a repo fault.
+- **`main` can move between job start and the push.** The nightly is a concurrent
+  writer — different concurrency group, so the two overlap freely — and it merges
+  its sync PR straight to `main`. The job therefore fetches and resets to a fresh
+  `main` inside a retry loop, and distinguishes a lost race (retry) from a
+  permanent rejection like branch protection (fail immediately). Dropping
+  `ref: main` from the checkout would make this *worse*, not simpler: without it
+  checkout pins to the run-creation SHA, widening the window by however long the
+  job sat queued.
 - **The bump is not evidence that a sync succeeded** — see
   [`last synced:`](/domain/source-files.md).
 

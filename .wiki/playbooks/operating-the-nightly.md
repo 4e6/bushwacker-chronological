@@ -48,9 +48,14 @@ Recovery, if it is disabled anyway:
 
 ```
 gh workflow enable nightly-sync.yml && gh workflow enable keepalive.yml
-gh workflow run keepalive.yml      # commits — this is what resets the 60-day clock
+gh workflow run keepalive.yml      # the commit is what resets the 60-day clock
 gh workflow run nightly-sync.yml   # catches up on anything uploaded meanwhile
+git fetch && git log -1 origin/main   # confirm the keepalive commit actually landed
 ```
+
+That last check matters: the keepalive exits 0 *without* committing if the date is
+already today (fine — something else reset the clock), and nothing else alerts on
+it failing, so confirm rather than assume.
 
 Enable **both**: the disable hits every scheduled workflow, and re-enabling only
 the nightly leaves nothing to reset the clock. Nothing is lost by an outage —

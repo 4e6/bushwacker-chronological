@@ -8,8 +8,10 @@ changes nothing either. A quiet month is therefore a month with zero commits, so
 without this the nightly switches itself off mid-drought — and the upload that
 ends the drought is precisely the one it would then miss. @Bushwackerhistory has
 gone quiet for 76 days (Dec 2025–Mar 2026) and 67 days (Apr–Jul 2026), so this is
-the normal case, not the edge case. Called monthly by keepalive.yml; ops-watch's
-`gha-nightly-sync` check is the backstop if it ever fails.
+the normal case, not the edge case. Called monthly by keepalive.yml. Nothing
+watches *this* script directly: if it stops working, the crons are disabled ~60
+days later and ops-watch reports nightly-sync as `workflow_disabled` — a backstop
+one layer out, not an alert on the failure itself.
 
 Writing the header date is bookkeeping the files already carry rather than a dummy
 commit: `last synced:` is otherwise only bumped when the *contents* change, which

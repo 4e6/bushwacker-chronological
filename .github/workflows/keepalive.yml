@@ -44,12 +44,16 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Re-fetch inside the loop rather than trusting the checkout: `actions/
-          # checkout` pins to the SHA captured when the run was CREATED, and this
-          # workflow can be queued behind (or run alongside) a nightly that merges
-          # its sync PR — so main may have moved and the push would be rejected
-          # non-fast-forward. Retrying against a fresh main is the whole fix; a
-          # rejected push here is never a repo problem, just a lost race.
+          # Re-fetch inside the loop rather than trusting the checkout above. With
+          # `ref: main` that checkout resolves main's tip at JOB START — but the
+          # nightly is a concurrent writer (different concurrency group, so the two
+          # can overlap freely) and it merges its sync PR straight to main, so main
+          # can move between job start and this push, which is then rejected
+          # non-fast-forward. Retrying against a fresh main is the whole fix.
+          #
+          # Do NOT "simplify" this by dropping `ref: main`: without it, checkout
+          # pins to the SHA captured when the run was CREATED, which widens the
+          # window to include however long this job sat queued.
           for attempt in 1 2 3; do
             git fetch --quiet origin main
             git reset --quiet --hard FETCH_HEAD
@@ -72,9 +76,20 @@ jobs:
             # workflows (the same rule decision 0003 rests on), and `[skip ci]`
             # suppresses the run even if that credential is ever swapped for a PAT.
             git commit --quiet -m "chore: bump last synced (keeps the crons alive) [skip ci]"
-            if git push; then
+            if out="$(git push 2>&1)"; then
               echo "pushed on attempt $attempt"
               exit 0
+            fi
+            printf '%s\n' "$out"
+
+            # Only a lost race is retryable. Anything else (branch protection back
+            # on, the token lacking contents:write) would burn all three attempts
+            # while claiming "main moved under us" — and nobody reads this log until
+            # the crons go quiet ~60 days later. Same fail-fast-and-loud shape as
+            # nightly-sync's auto-merge loop.
+            if ! printf '%s\n' "$out" | grep -qiE 'fetch first|non-fast-forward|failed to update ref|cannot lock ref'; then
+              echo "::error::keepalive push failed permanently (not a lost race) — see above"
+              exit 1
             fi
             echo "push rejected — main moved under us; retrying against a fresh main"
           done
