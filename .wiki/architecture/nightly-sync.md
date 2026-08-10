@@ -5,7 +5,7 @@ description: The hands-off GitHub Actions loop that detects new uploads, classif
 tags: [ci, automation]
 timestamp: 2026-08-10T00:00:00Z
 sources: [.github/workflows/nightly-sync.yml, .github/workflows/playlist-apply.yml, scripts/detect_new.py, scripts/classify_prompt.md]
-source_commit: f2cc7148945f446ee9e4aa4c55f0f7062a1ca38a
+source_commit: 2cfce407b9ec09c3dfd34c7c0bdcdec89e37971e
 ---
 
 # Responsibility

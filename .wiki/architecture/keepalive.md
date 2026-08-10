@@ -5,6 +5,7 @@ description: The monthly heartbeat commit that stops GitHub auto-disabling this 
 tags: [ci, automation]
 timestamp: 2026-08-10T00:00:00Z
 sources: [.github/workflows/keepalive.yml, scripts/touch_last_synced.py]
+source_commit: 2cfce407b9ec09c3dfd34c7c0bdcdec89e37971e
 ---
 
 # Responsibility
