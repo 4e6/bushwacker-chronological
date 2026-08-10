@@ -30,3 +30,8 @@ recursion guard), so the YouTube write cannot rely on a `push`-triggered workflo
 - Depends on repo settings (read-only default token, "allow Actions to create
   PRs", squash-only merge) — see
   [operating the nightly](/playbooks/operating-the-nightly.md).
+- A **second** mechanism now leans on the same recursion guard, in the opposite
+  direction: the [keepalive](/architecture/keepalive.md) commits to
+  `bushwacker_playlist.txt` and relies on its GITHUB_TOKEN push *not* firing
+  `playlist-apply.yml`. It carries `[skip ci]` as an independent second guard, but
+  if this rule ever changes, check both.

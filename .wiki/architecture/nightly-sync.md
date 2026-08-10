@@ -3,7 +3,7 @@ type: Module
 title: Nightly sync pipeline
 description: The hands-off GitHub Actions loop that detects new uploads, classifies them, and updates the live playlist.
 tags: [ci, automation]
-timestamp: 2026-07-27T18:15:00Z
+timestamp: 2026-08-10T00:00:00Z
 sources: [.github/workflows/nightly-sync.yml, .github/workflows/playlist-apply.yml, scripts/detect_new.py, scripts/classify_prompt.md]
 source_commit: f2cc7148945f446ee9e4aa4c55f0f7062a1ca38a
 ---
@@ -12,7 +12,8 @@ source_commit: f2cc7148945f446ee9e4aa4c55f0f7062a1ca38a
 
 `nightly-sync.yml` (cron 04:00 UTC + manual dispatch) runs the whole sync loop
 with **no human step**. The [manual sync playbook](/playbooks/manual-sync.md) is
-the set of rules it automates.
+the set of rules it automates. Its cron staying alive at all is the
+[keepalive](/architecture/keepalive.md)'s job.
 
 # Pipeline (job `sync`)
 
@@ -32,7 +33,8 @@ the set of rules it automates.
    (see [subtitle mirror](/architecture/subtitles.md)).
 5. **create-pull-request** opens a PR on `sync/auto` for anything tracked that
    changed, then **auto-merges** it (squash — the repo's only enabled method). The
-   merged PRs are the change log.
+   merged PRs are the change log — the only other writer is the monthly
+   [keepalive](/architecture/keepalive.md), which commits straight to `main`.
 
 # Job `apply`
 

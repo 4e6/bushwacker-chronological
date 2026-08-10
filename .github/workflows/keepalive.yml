@@ -1,0 +1,98 @@
+# Keeps this repo's scheduled workflows from being switched off.
+#
+# GitHub disables scheduled workflows in a PUBLIC repo after 60 days of no
+# repository activity, and this repo commits nothing during a channel drought: no
+# upload → no classification, and with the subtitle mirror complete the subtitle
+# backfill changes nothing either. @Bushwackerhistory has gone quiet for 76 days
+# (Dec 2025–Mar 2026) and 67 days (Apr–Jul 2026), so without this the nightly
+# switches itself off mid-drought and misses the upload that ends it — and the
+# disable takes the whole workflow, so even manual dispatch would be blocked.
+#
+# Deliberately its OWN workflow file rather than a second job on nightly-sync:
+# ops-watch's `gha-nightly-sync` check judges nightly-sync by its most recent
+# completed run, whichever job produced it, so a green keepalive run sharing that
+# file would mask a nightly that failed the same morning (and close its incident
+# as recovered). Separate files keep that signal clean.
+#
+# Not itself watched by ops-watch. It does not need to be: if this silently stops
+# working, GitHub disables the crons ~60 days later and ops-watch reports
+# nightly-sync as `workflow_disabled` within 15 minutes.
+name: keepalive
+
+on:
+  schedule:
+    - cron: "41 5 1 * *"     # 05:41 UTC, 1st of the month
+  workflow_dispatch:         # runnable on demand — also how it gets smoke-tested
+
+permissions:
+  contents: write            # the heartbeat commit
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+        with:
+          ref: main
+
+      - name: Bump `last synced:` and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Re-fetch inside the loop rather than trusting the checkout above. With
+          # `ref: main` that checkout resolves main's tip at JOB START — but the
+          # nightly is a concurrent writer (different concurrency group, so the two
+          # can overlap freely) and it merges its sync PR straight to main, so main
+          # can move between job start and this push, which is then rejected
+          # non-fast-forward. Retrying against a fresh main is the whole fix.
+          #
+          # Do NOT "simplify" this by dropping `ref: main`: without it, checkout
+          # pins to the SHA captured when the run was CREATED, which widens the
+          # window to include however long this job sat queued.
+          for attempt in 1 2 3; do
+            git fetch --quiet origin main
+            git reset --quiet --hard FETCH_HEAD
+
+            python3 scripts/touch_last_synced.py
+            git add bushwacker_playlist.txt bushwacker_excluded.txt
+
+            # Nothing to do: something else already committed today, so the
+            # activity clock is reset and the repo is alive. Checked explicitly
+            # rather than with `git commit || true`, so a genuinely broken commit
+            # still fails the run.
+            if git diff --cached --quiet; then
+              echo "last synced is already current — something committed today; nothing to do"
+              exit 0
+            fi
+
+            # This commit touches bushwacker_playlist.txt, which is exactly the path
+            # playlist-apply.yml watches — but it must NOT kick off a live YouTube
+            # write. Two independent guards: a GITHUB_TOKEN push never triggers
+            # workflows (the same rule decision 0003 rests on), and `[skip ci]`
+            # suppresses the run even if that credential is ever swapped for a PAT.
+            git commit --quiet -m "chore: bump last synced (keeps the crons alive) [skip ci]"
+            if out="$(git push 2>&1)"; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            printf '%s\n' "$out"
+
+            # Only a lost race is retryable. Anything else (branch protection back
+            # on, the token lacking contents:write) would burn all three attempts
+            # while claiming "main moved under us" — and nobody reads this log until
+            # the crons go quiet ~60 days later. Same fail-fast-and-loud shape as
+            # nightly-sync's auto-merge loop.
+            if ! printf '%s\n' "$out" | grep -qiE 'fetch first|non-fast-forward|failed to update ref|cannot lock ref'; then
+              echo "::error::keepalive push failed permanently (not a lost race) — see above"
+              exit 1
+            fi
+            echo "push rejected — main moved under us; retrying against a fresh main"
+          done
+
+          echo "::error::could not push the keepalive commit after $attempt attempts"
+          exit 1
