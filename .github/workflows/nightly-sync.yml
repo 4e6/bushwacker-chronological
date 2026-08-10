@@ -9,10 +9,11 @@ name: nightly-sync
 on:
   schedule:
     - cron: "0 4 * * *"      # 04:00 UTC daily
+    - cron: "41 5 1 * *"     # monthly keepalive — see the `keepalive` job below
   workflow_dispatch:
 
 permissions:
-  contents: write            # push the sync branch + merge
+  contents: write            # push the sync branch + merge, and the keepalive commit
   pull-requests: write       # open/merge the PR
 
 concurrency:
@@ -21,6 +22,9 @@ concurrency:
 
 jobs:
   sync:
+    # Everything except the monthly keepalive tick: the daily cron, and manual
+    # dispatch (where `github.event.schedule` is empty).
+    if: github.event.schedule != '41 5 1 * *'
     runs-on: ubuntu-latest
     outputs:
       apply_needed: ${{ steps.changed.outputs.apply_needed }}
@@ -193,3 +197,50 @@ jobs:
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
           APPLY: "1"
         run: python3 scripts/yt_playlist_sync.py
+
+  # This repo is PUBLIC, and GitHub disables scheduled workflows in a public repo
+  # after 60 days of no repository activity. A quiet channel produces no commits at
+  # all here — no upload → no classification, and with the subtitle mirror complete
+  # the backfill changes nothing either — so without this the nightly switches
+  # itself off mid-drought and misses the upload that ends it. The channel has gone
+  # quiet for 76 days (Dec 2025–Mar 2026) and 67 days (Apr–Jul 2026): normal case,
+  # not edge case. Bumping the files' own `last synced:` header rather than
+  # committing a dummy file keeps the commit honest — the date currently only moves
+  # when the contents change, which understates what the nightly actually verifies
+  # (see scripts/touch_last_synced.py).
+  #
+  # Monthly leaves ~30 days of slack against the 60-day deadline, and `schedule` is
+  # best-effort (GitHub delays and drops ticks under load), so a dropped firing puts
+  # the next one right on the line. That residual is covered rather than eliminated:
+  # ops-watch's `gha-nightly-sync` check alerts on `workflow_disabled` within 15 min,
+  # and recovery is `gh workflow enable nightly-sync.yml`.
+  keepalive:
+    if: github.event.schedule == '41 5 1 * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - name: Bump `last synced:` and push
+        run: |
+          python3 scripts/touch_last_synced.py
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bushwacker_playlist.txt bushwacker_excluded.txt
+
+          # On the 1st the 04:00 sync runs first, so a new video may already have
+          # bumped the date and committed — the repo is alive and there is nothing
+          # to do. Checked explicitly rather than with `git commit || true`, so a
+          # genuinely broken commit still fails the run (and ops-watch still sees it).
+          if git diff --cached --quiet; then
+            echo "last synced already current — the nightly committed today; nothing to do"
+            exit 0
+          fi
+
+          # This push touches bushwacker_playlist.txt, which is exactly the path
+          # playlist-apply.yml watches — but it must NOT kick off a live YouTube
+          # write. Two independent guards: a GITHUB_TOKEN push never triggers
+          # workflows (decision 0003, the same reason `apply` runs inline above),
+          # and `[skip ci]` suppresses the run even if that credential is ever
+          # swapped for a PAT. The apply would be a no-op anyway (no membership
+          # changed), but it should not run at all.
+          git commit -m "chore: bump last synced (keeps the nightly cron alive) [skip ci]"
+          git push

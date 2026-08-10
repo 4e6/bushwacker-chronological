@@ -3,8 +3,8 @@ type: Module
 title: Nightly sync pipeline
 description: The hands-off GitHub Actions loop that detects new uploads, classifies them, and updates the live playlist.
 tags: [ci, automation]
-timestamp: 2026-07-27T18:15:00Z
-sources: [.github/workflows/nightly-sync.yml, .github/workflows/playlist-apply.yml, scripts/detect_new.py, scripts/classify_prompt.md]
+timestamp: 2026-08-10T00:00:00Z
+sources: [.github/workflows/nightly-sync.yml, .github/workflows/playlist-apply.yml, scripts/detect_new.py, scripts/classify_prompt.md, scripts/touch_last_synced.py]
 source_commit: f2cc7148945f446ee9e4aa4c55f0f7062a1ca38a
 ---
 
@@ -12,7 +12,8 @@ source_commit: f2cc7148945f446ee9e4aa4c55f0f7062a1ca38a
 
 `nightly-sync.yml` (cron 04:00 UTC + manual dispatch) runs the whole sync loop
 with **no human step**. The [manual sync playbook](/playbooks/manual-sync.md) is
-the set of rules it automates.
+the set of rules it automates. A second, monthly cron on the same workflow runs
+only [`keepalive`](#job-keepalive).
 
 # Pipeline (job `sync`)
 
@@ -44,6 +45,20 @@ Shorts/meta touch `excluded.txt` only → `apply` is skipped, nothing hits YouTu
 
 `apply` runs *inline* here rather than on a push trigger because
 [GITHUB_TOKEN merges don't trigger workflows](/decisions/0003-apply-inline-and-unprotected-main.md).
+
+# Job `keepalive`
+
+A second cron (`41 5 1 * *`) on the same workflow, selected with
+`github.event.schedule`; it runs `touch_last_synced.py` and pushes. Its only
+purpose is to give a **public** repo a commit every month, because GitHub disables
+scheduled workflows after 60 days of no repository activity and a drought here
+produces no commits at all. Why that matters, and what catches it if the keepalive
+ever misses: [operating the nightly](/playbooks/operating-the-nightly.md#if-the-nightly-stops-running-at-all).
+
+That push writes `bushwacker_playlist.txt` — the path `playlist-apply.yml` watches
+— so it carries **two** guards against triggering a live YouTube write: the
+GITHUB_TOKEN push (which cannot trigger workflows) and `[skip ci]` in the commit
+message, which still holds if that credential is ever swapped for a PAT.
 
 # Boundaries
 

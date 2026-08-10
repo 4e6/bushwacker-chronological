@@ -3,7 +3,7 @@ type: Data Model
 title: Source files & the period-year sort key
 description: Formats of bushwacker_playlist.txt, bushwacker_excluded.txt, and subtitles/_index.tsv, and the [YEAR] sort key.
 tags: [data, domain]
-timestamp: 2026-07-27T18:15:00Z
+timestamp: 2026-08-10T00:00:00Z
 ---
 
 # bushwacker_playlist.txt
@@ -19,6 +19,13 @@ chronologically ascending. Each entry is 3 lines:
 
 The `watch?v=<id>` lines are the authoritative record of playlist membership. A
 header carries the `videos:` count and `last synced:` date.
+
+`last synced:` (present in **both** files) means *the sync last verified this file
+against the channel* — not "the contents last changed". The classifier bumps it
+when it edits a file, and `touch_last_synced.py` bumps it monthly otherwise, which
+is also what keeps the nightly's cron
+[from being auto-disabled](/architecture/nightly-sync.md#job-keepalive). Nothing
+parses it; it is informational.
 
 # bushwacker_excluded.txt
 

@@ -3,7 +3,7 @@ type: Playbook
 title: Operating the nightly
 description: Normal operation, manual runs, recovery, and the repo secrets/settings the loop depends on.
 tags: [oncall, ci, secrets]
-timestamp: 2026-07-27T18:15:00Z
+timestamp: 2026-08-10T00:00:00Z
 ---
 
 # Normal
@@ -28,6 +28,32 @@ reliable. Main residual exposure: a period episode with a wrong year.
 
 Optional safety valve (not enabled): gate the auto-merge so Shorts/meta auto-merge
 but period-episode PRs wait for a human glance.
+
+# If the nightly stops running at all
+
+GitHub disables scheduled workflows in a **public** repo after 60 days of no
+repository activity — and this repo commits nothing during a channel drought (no
+upload → no classification; the subtitle mirror is complete, so the backfill
+changes nothing either). The channel has gone quiet for 76 and 67 days, so the
+loop would switch itself off exactly when it is about to be needed.
+
+Two things stop that being silent:
+
+- **Prevention** — the `keepalive` job (cron `41 5 1 * *`) bumps `last synced:` in
+  both [source files](/domain/source-files.md) once a month, ~30 days of slack
+  against the deadline. Monthly is deliberate but thin: `schedule` is best-effort
+  and GitHub drops ticks under load, so a dropped firing lands near the line.
+- **Detection** — ops-watch's `gha-nightly-sync` check alerts on
+  `workflow_disabled` (and `overdue`) every 15 minutes.
+
+Recovery, if it is ever disabled: `gh workflow enable nightly-sync.yml` then
+`gh workflow run nightly-sync.yml`. Nothing is lost — detection is a set-difference
+against the two files ([source of truth](/decisions/0001-files-as-source-of-truth.md)),
+so a missed upload is simply picked up on the next run.
+
+> **Gotcha:** the disable takes the **whole workflow**, not just its schedule —
+> `workflow_dispatch` is blocked too, so "Manual runs" above will not work until
+> you re-enable it.
 
 # Secrets & settings
 
