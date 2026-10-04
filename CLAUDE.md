@@ -15,7 +15,7 @@ operational playbooks — lives in the OKF wiki at [.wiki/](.wiki/). Start at
 [.wiki/index.md](.wiki/index.md).** Quick map:
 
 - **What runs & why** — [.wiki/architecture/](.wiki/architecture/) (nightly-sync,
-  subtitles) and [.wiki/decisions/](.wiki/decisions/).
+  subtitles), with the reasoning in each page's `# Why` section.
 - **Data & the `[YEAR]` sort key** — [.wiki/domain/source-files.md](.wiki/domain/source-files.md).
 - **Third parties** — [.wiki/integrations/](.wiki/integrations/) (YouTube InnerTube,
   Data API, Supadata).

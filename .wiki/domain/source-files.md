@@ -36,7 +36,7 @@ as "new" every sync.
 
 > **Invariant:** the video ids in these two files together = **every** channel
 > video already classified. New-video detection depends on it — see
-> [files as source of truth](/decisions/0001-files-as-source-of-truth.md).
+> [files as source of truth](/domain/source-files.md#why-the-files-are-the-source-of-truth).
 
 # The `[YEAR]` sort key
 
@@ -45,10 +45,34 @@ Negative = BCE, positive = CE, smaller = older; the file sorts ascending. For a
 broad span, use the start of the polity/era (Republic of Venice → 697; "Хетты" →
 -1650; "Ликбез по Сирии" → 2011). Period labels stay in Russian, matching the
 existing style. How the year is chosen for a new video:
-[duration-first classification](/decisions/0002-duration-first-classification.md).
+[duration-first classification](/architecture/nightly-sync.md#why-classification-is-duration-first).
 
 # subtitles/_index.tsv
 
 `year, video_id, source, srt_file, title` in playlist order — the record of where
 each subtitle came from. `source` ∈ `yt-auto` | `yt-manual` | `supadata` |
 `whisper`. See [subtitle mirror](/architecture/subtitles.md).
+
+# Why the files are the source of truth
+
+The two text files are authoritative; the live playlist is *derived* from them.
+The `watch?v=<id>` lines in `bushwacker_playlist.txt` plus the `[SHORT|META]` ids
+in `bushwacker_excluded.txt` together are the record of every channel video
+already classified.
+
+- New-video detection is a stable **ID set-difference** (channel ids − known ids),
+  so a missed upload is simply caught on a later run.
+- The change log is the git history of these files (the merged sync PRs).
+- Writes to YouTube are one-directional and deterministic
+  ([apply job](/architecture/nightly-sync.md#job-apply)), and the code only ever
+  inserts, so the worst case is a misplaced entry — fixable by editing the file
+  and re-applying.
+
+# Rejected alternatives
+
+- **Read playlist state live from YouTube.** Anonymous reads
+  [cap at 100 items](/integrations/youtube-innertube.md) and the playlist has more;
+  titles and dates change, and videos get (un)listed out of order, so the live
+  list is not a stable record of what was classified.
+- **Detect new uploads by "last video id" or upload date.** Out-of-order
+  (un)listing breaks both; the id set-difference does not.

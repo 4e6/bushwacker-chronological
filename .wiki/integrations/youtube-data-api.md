@@ -4,8 +4,10 @@ title: YouTube Data API (OAuth)
 description: The OAuth Data API path used from CI for durations and the deterministic playlist insert.
 tags: [youtube, api, ci, secrets]
 timestamp: 2026-07-27T18:15:00Z
-sources: [scripts/yt_playlist_sync.py, scripts/mint_youtube_token.py]
-source_commit: f2cc7148945f446ee9e4aa4c55f0f7062a1ca38a
+sources:
+  - resource: scripts/yt_playlist_sync.py
+  - resource: scripts/mint_youtube_token.py
+sources_digest: 53a24034fb4f8562
 ---
 
 # When to use
@@ -14,7 +16,7 @@ source_commit: f2cc7148945f446ee9e4aa4c55f0f7062a1ca38a
 uses the OAuth Data API for the two things it needs:
 
 - **Read** — durations + descriptions for new ids (`detect_new.py` enrichment,
-  decisive for [Short-vs-episode](/decisions/0002-duration-first-classification.md)).
+  decisive for [Short-vs-episode](/architecture/nightly-sync.md#why-classification-is-duration-first)).
 - **Write** — the deterministic playlist insert at a chronological `position`
   (`yt_playlist_sync.py`, the [`apply` job](/architecture/nightly-sync.md)).
 
@@ -34,6 +36,6 @@ Full secret inventory + repo settings:
 
 This is the *only* path that writes to YouTube from CI, and it **only inserts**
 (never deletes) — see
-[apply inline / unprotected main](/decisions/0003-apply-inline-and-unprotected-main.md).
+[apply inline / unprotected main](/architecture/nightly-sync.md#why-apply-runs-inline-and-main-stays-unprotected).
 Interactive playlist edits from a browser use the
 [InnerTube API](/integrations/youtube-innertube.md) instead.

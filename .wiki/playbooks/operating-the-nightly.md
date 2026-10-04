@@ -21,9 +21,9 @@ Actions log — a live `playlistItems.insert` is the least battle-tested step.
 # Recovery
 
 No human gate, so a misclassification goes live — but it is recoverable: the apply
-[never deletes](/decisions/0003-apply-inline-and-unprotected-main.md) (worst case
+[never deletes](/architecture/nightly-sync.md#why-apply-runs-inline-and-main-stays-unprotected) (worst case
 a misplaced entry, fixed by editing the file + re-applying), and
-[duration-first](/decisions/0002-duration-first-classification.md) makes Shorts
+[duration-first](/architecture/nightly-sync.md#why-classification-is-duration-first) makes Shorts
 reliable. Main residual exposure: a period episode with a wrong year.
 
 Optional safety valve (not enabled): gate the auto-merge so Shorts/meta auto-merge
@@ -60,7 +60,7 @@ it failing, so confirm rather than assume.
 Enable **both**: the disable hits every scheduled workflow, and re-enabling only
 the nightly leaves nothing to reset the clock. Nothing is lost by an outage —
 detection is a set-difference against the two files
-([source of truth](/decisions/0001-files-as-source-of-truth.md)), so a missed
+([source of truth](/domain/source-files.md#why-the-files-are-the-source-of-truth)), so a missed
 upload is simply picked up on the next run.
 
 > **Gotcha:** the disable takes the **whole workflow**, not just its schedule —
@@ -78,4 +78,4 @@ upload is simply picked up on the next run.
 - Repo settings: default workflow token **read-only**, "Allow Actions to create
   PRs" **on**, all actions pinned to commit SHAs.
 - **Do not enable required-review branch protection on `main`** — it breaks the
-  bot's auto-merge ([why](/decisions/0003-apply-inline-and-unprotected-main.md)).
+  bot's auto-merge ([why](/architecture/nightly-sync.md#why-apply-runs-inline-and-main-stays-unprotected)).

@@ -4,8 +4,10 @@ title: Keepalive
 description: The monthly heartbeat commit that stops GitHub auto-disabling this repo's scheduled workflows during a channel drought.
 tags: [ci, automation]
 timestamp: 2026-08-10T00:00:00Z
-sources: [.github/workflows/keepalive.yml, scripts/touch_last_synced.py]
-source_commit: 2cfce407b9ec09c3dfd34c7c0bdcdec89e37971e
+sources:
+  - resource: .github/workflows/keepalive.yml
+  - resource: scripts/touch_last_synced.py
+sources_digest: e32c95a532852ccc
 ---
 
 # Responsibility
@@ -40,7 +42,7 @@ they also drop the cron literal from three places to one.
   `bushwacker_playlist.txt` — exactly the path `playlist-apply.yml`'s push trigger
   watches — so it carries two independent guards: the GITHUB_TOKEN push (which
   cannot trigger workflows, the rule
-  [decision 0003](/decisions/0003-apply-inline-and-unprotected-main.md) rests on)
+  [why apply runs inline](/architecture/nightly-sync.md#why-apply-runs-inline-and-main-stays-unprotected) rests on)
   and `[skip ci]` in the commit message, which still holds if that credential is
   ever swapped for a PAT.
 - **Not monitored by ops-watch, deliberately.** If it silently stops working,

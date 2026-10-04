@@ -19,9 +19,9 @@ chronological slot, and mirrors Russian subtitles.
 
 - **How the automation works** — [nightly sync pipeline](/architecture/nightly-sync.md),
   [subtitle mirror](/architecture/subtitles.md).
-- **Why it's shaped this way** — [files are the source of truth](/decisions/0001-files-as-source-of-truth.md),
-  [duration-first classification](/decisions/0002-duration-first-classification.md),
-  [apply inline / unprotected main](/decisions/0003-apply-inline-and-unprotected-main.md).
+- **Why it's shaped this way** — [files are the source of truth](/domain/source-files.md#why-the-files-are-the-source-of-truth),
+  [duration-first classification](/architecture/nightly-sync.md#why-classification-is-duration-first),
+  [apply inline / unprotected main](/architecture/nightly-sync.md#why-apply-runs-inline-and-main-stays-unprotected).
 - **Data & vocabulary** — [source files & the period-year sort key](/domain/source-files.md).
 - **Third parties** — [YouTube InnerTube](/integrations/youtube-innertube.md),
   [YouTube Data API](/integrations/youtube-data-api.md),
