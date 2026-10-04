@@ -4,8 +4,10 @@ title: Subtitle mirror
 description: The committed Russian-caption mirror of the playlist and the self-healing fetch pipeline behind it.
 tags: [subtitles, ci]
 timestamp: 2026-07-27T18:15:00Z
-sources: [scripts/fetch_subtitles.py, scripts/fetch_transcripts.py]
-source_commit: f2cc7148945f446ee9e4aa4c55f0f7062a1ca38a
+sources:
+  - resource: scripts/fetch_subtitles.py
+  - resource: scripts/fetch_transcripts.py
+sources_digest: 32a2e88b12704b36
 ---
 
 # Responsibility
@@ -38,7 +40,7 @@ is recorded honestly in `_index.tsv`.
 
 `fetch_transcripts.py` runs *before* the classifier to fetch the first ~15–20 min
 of a new episode's captions as `transcript_intro`
-([for dating](/decisions/0002-duration-first-classification.md)), caching the full
+([for dating](/architecture/nightly-sync.md#why-classification-is-duration-first)), caching the full
 SRT so the mirror step reuses it — one [Supadata](/integrations/supadata.md)
 credit feeds both. Per-video isolation + an atomic `new_videos.json` write keep
 that handoff safe.

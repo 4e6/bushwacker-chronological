@@ -56,7 +56,7 @@ MOVE_VIDEO_AFTER.
 - **Anonymous reads cap at 100** (yt-dlp `--flat-playlist`, public web UI). This
   playlist has >100, so always verify with the authenticated `enumerate()` (which
   paginates past 100). This caused real confusion before — don't repeat it. It is
-  also why the [text files are the source of truth](/decisions/0001-files-as-source-of-truth.md).
+  also why the [text files are the source of truth](/domain/source-files.md#why-the-files-are-the-source-of-truth).
 - `playlist/create` is **not** capped at 100.
 - `edit_playlist` add/remove/move act per-entry by `setVideoId`; the same videoId
   can appear multiple times, each with its own `setVideoId`.

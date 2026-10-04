@@ -22,12 +22,12 @@ comm -23 /tmp/chan_ids.txt /tmp/known_ids.txt   # => NEW, unclassified ids
 ```
 
 Use the **ID set-difference** — stable, unlike "last video id" or upload dates
-([files as source of truth](/decisions/0001-files-as-source-of-truth.md)). Per id:
+([files as source of truth](/domain/source-files.md#why-the-files-are-the-source-of-truth)). Per id:
 `yt-dlp --skip-download --print "%(duration)s s | %(upload_date)s | %(title)s" "https://youtu.be/<ID>"`.
 
 # 2. Classify & date
 
-[Duration-first](/decisions/0002-duration-first-classification.md): Short (≲350 s)
+[Duration-first](/architecture/nightly-sync.md#why-classification-is-duration-first): Short (≲350 s)
 → `excluded.txt`; meta → `excluded.txt`; else a period episode → pick its
 [`[YEAR]`](/domain/source-files.md). For an ambiguous year, read the transcript
 intro (CI does this via `fetch_transcripts.py`; by hand,
