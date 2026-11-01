@@ -8,7 +8,7 @@ name: nightly-sync
 
 on:
   schedule:
-    - cron: "0 4 * * *"      # 04:00 UTC daily
+    - cron: "51 4 * * *"     # 04:51 UTC daily (off the hour: :00 starts are delayed hours)
   workflow_dispatch:
 
 permissions:
