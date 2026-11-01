@@ -1,5 +1,11 @@
 # Update Log
 
+## 2026-11-01
+* **Change**: [Nightly sync](/architecture/nightly-sync.md) cron moved from
+  `0 4 * * *` to `51 4 * * *`. Scheduled runs were starting 4.5–8 h late (08:22–11:45
+  UTC); `:00` is GitHub's busiest slot. Recorded as a gotcha on that page, with the
+  caveat that the minute may not be the whole cause.
+
 ## 2026-10-04
 * **Migration**: Bundle moved from OKF v0.1 to v0.2 with the llm-wiki skill's
   `okf.py upgrade` — `sources` entries are now `resource` mappings, Decision

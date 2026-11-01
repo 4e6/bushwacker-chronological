@@ -9,12 +9,12 @@ sources:
   - resource: .github/workflows/playlist-apply.yml
   - resource: scripts/detect_new.py
   - resource: scripts/classify_prompt.md
-sources_digest: ddff954812696f67
+sources_digest: 6f072ac25d132113
 ---
 
 # Responsibility
 
-`nightly-sync.yml` (cron 04:00 UTC + manual dispatch) runs the whole sync loop
+`nightly-sync.yml` (cron 04:51 UTC + manual dispatch) runs the whole sync loop
 with **no human step**. The [manual sync playbook](/playbooks/manual-sync.md) is
 the set of rules it automates. Its cron staying alive at all is the
 [keepalive](/architecture/keepalive.md)'s job.
@@ -70,6 +70,11 @@ Normal operation, manual runs, and recovery:
   Data API, and subtitles fall back to [Supadata](/integrations/supadata.md). A
   genuinely-missed upload is caught on a later run — the ID set-difference is
   stable ([files as source of truth](/domain/source-files.md#why-the-files-are-the-source-of-truth)).
+- **Scheduled starts run hours late, and the cron minute is deliberate.** GitHub
+  schedules are best-effort; a `0 4 * * *` cron started 4.5–8 h late (08:22–11:45
+  UTC over Oct 2026) because `:00` is the busiest slot. The cron sits at `:51` to
+  stay out of it. Nothing depends on the start time, so a late run only delays the
+  playlist update; if `:51` still lags by hours, the minute was not the cause.
 
 # Why
 
