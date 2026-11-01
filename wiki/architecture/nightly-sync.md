@@ -9,7 +9,7 @@ sources:
   - resource: .github/workflows/playlist-apply.yml
   - resource: scripts/detect_new.py
   - resource: scripts/classify_prompt.md
-sources_digest: a51ad4a2d871b3af
+sources_digest: d21aeedceee70ef6
 ---
 
 # Responsibility

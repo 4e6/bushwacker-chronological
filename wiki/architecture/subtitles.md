@@ -7,7 +7,7 @@ timestamp: 2026-07-27T18:15:00Z
 sources:
   - resource: scripts/fetch_subtitles.py
   - resource: scripts/fetch_transcripts.py
-sources_digest: 86f0bf5618817400
+sources_digest: b8fd9fd8e73d704c
 ---
 
 # Responsibility
