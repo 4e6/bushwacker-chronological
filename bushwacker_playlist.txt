@@ -3,7 +3,7 @@ BUSHWACKER HISTORY — ХРОНОЛОГИЧЕСКИЙ ПЛЕЙЛИСТ / CHRONOL
 Зеркало YouTube-плейлиста / mirror of YouTube playlist:
   https://www.youtube.com/playlist?list=PLVw98VIsFGF8
 Канал / channel: https://www.youtube.com/@Bushwackerhistory
-Видео / videos: 130   Последняя синхронизация / last synced: 2026-10-01
+Видео / videos: 131   Последняя синхронизация / last synced: 2026-11-01
 ==============================================================================
 
 В этом файле — ТОЛЬКО видео из плейлиста (хронологические выпуски).
@@ -286,6 +286,10 @@ BUSHWACKER HISTORY — ХРОНОЛОГИЧЕСКИЙ ПЛЕЙЛИСТ / CHRONOL
 [ 1240]  Русь после монгольского нашествия (XIII–XIV вв.)
         ▶ Русь после монгольского нашествия(XIII-XIV вв.)
         https://www.youtube.com/watch?v=E9g63xFkbuo
+
+[ 1271]  Средневековый Китай: империя Юань (1271–1368)
+        ▶ Средневековый Китай. Империя Юань (1271 - 1368)
+        https://www.youtube.com/watch?v=cHM-W0SGQ7k
 
 [ 1325]  Ацтеки (~1325–1521)
         ▶ Ацтеки
