@@ -34,6 +34,3 @@ A GitHub Actions job runs every night:
    It only ever adds videos, so a wrong year is fixed by editing the file and applying again.
 
 Subtitles for every episode are mirrored in [`subtitles/`](subtitles/).
-
-Architecture, design decisions and operating playbooks are in the project wiki:
-[`.wiki/index.md`](.wiki/index.md).

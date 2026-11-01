@@ -12,10 +12,10 @@ any network, API, or YouTube operation — adding to the live playlist happens l
 in a separate, deterministic job.
 
 ## Your task
-1. Read `new_videos.json` and `CLAUDE.md` (the sync guide). Some entries include a
+1. Read `new_videos.json` and `AGENTS.md` (the sync guide). Some entries include a
    `transcript_intro` — the first ~15–20 min of the video's own captions, a strong
    hint for a period episode's start year; it's absent when it couldn't be fetched.
-2. Classify **each** new video and edit the files per CLAUDE.md "Sync workflow":
+2. Classify **each** new video and edit the files per AGENTS.md "Sync workflow":
 
    - **SHORT — decide by DURATION FIRST, not title.** Any video shorter than
      ~6 minutes (`duration_s` ≲ 350) is a SHORT, *regardless of how episode-like

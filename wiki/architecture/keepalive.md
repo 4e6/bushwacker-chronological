@@ -7,7 +7,7 @@ timestamp: 2026-08-10T00:00:00Z
 sources:
   - resource: .github/workflows/keepalive.yml
   - resource: scripts/touch_last_synced.py
-sources_digest: e32c95a532852ccc
+sources_digest: e8161828b0ef57f2
 ---
 
 # Responsibility

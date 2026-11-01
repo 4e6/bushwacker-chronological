@@ -17,7 +17,7 @@ Writing the header date is bookkeeping the files already carry rather than a dum
 commit: `last synced:` is otherwise only bumped when the *contents* change, which
 understates how often the loop actually touches these files. Note what it does NOT
 claim — this runs no `detect_new.py`, so the date advancing is not evidence that a
-sync succeeded that day (see .wiki/domain/source-files.md).
+sync succeeded that day (see wiki/domain/source-files.md).
 
 No-op (exit 0, nothing written) if both files already carry today's date, so
 running it twice in a day produces no second commit.
