@@ -24,7 +24,7 @@ already fetched this run for the classifier — see SUBS_CACHE_DIR) -> yt-dlp ma
 subs -> yt-dlp auto-captions (both free) -> the Supadata HTTP API (fallback), so a
 new episode is fetched only once per night. yt-dlp is primary because it's free
 (YouTube exposes NO Data-API path to a third party's captions), but it CAN be
-bot-blocked from datacenter IPs (see CLAUDE.md — that's why detect_new.py avoids
+bot-blocked from datacenter IPs (see wiki/architecture/nightly-sync.md — that's why detect_new.py avoids
 yt-dlp); in GitHub Actions it usually is. Supadata fetches the SAME YouTube
 captions over an API that isn't IP-blocked — set SUPADATA_API_KEY (env or a local
 .env) to enable it. It is pinned to mode=native: existing captions only, ~1
@@ -37,7 +37,7 @@ Best-effort by design: any video whose captions can't be fetched — yt-dlp
 blocked AND Supadata unset/unavailable, or none exist anywhere (→ needs local
 Whisper) — is left for a later run / the local fallback; the script still exits
 0 so it never breaks the sync. Whisper is deliberately NOT run here (it needs a
-GPU + a 1.6 GB model); that stays local per CLAUDE.md "Subtitles".
+GPU + a 1.6 GB model); that stays local per wiki/architecture/subtitles.md.
 
 Usage:
   python3 scripts/fetch_subtitles.py            # fetch every missing subtitle

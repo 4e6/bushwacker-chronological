@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Enrich new_videos.json with a transcript intro so the CI classifier can date
 each new PERIOD episode from the video's own words — a wrong start year is the
-automated loop's #1 error mode (CLAUDE.md "Operating it"). These episodes state
+automated loop's #1 error mode (wiki/playbooks/operating-the-nightly.md). These episodes state
 the era they cover in the first minutes, so the opening ~15-20 min of captions is
 usually enough to pin the [YEAR] when the title is vague.
 

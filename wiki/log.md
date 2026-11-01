@@ -1,6 +1,17 @@
 # Update Log
 
 ## 2026-11-01
+* **Migration**: Bundle moved from `.wiki/` to `wiki/`, so it is visible in file
+  listings and on GitHub. Pages and bundle-absolute links are unchanged; the
+  project's agent instructions were repointed. Those instructions moved from
+  `CLAUDE.md` to `AGENTS.md` in the same change, and `CLAUDE.md` is now a one-line
+  `@AGENTS.md` import so Claude Code still loads them.
+* **Change**: The [nightly](/architecture/nightly-sync.md) classifier prompt now
+  names its rules directly, [manual sync](/playbooks/manual-sync.md) and
+  [source files](/domain/source-files.md). It used to point at a "Sync workflow"
+  section of `CLAUDE.md` that had not existed since the 2026-07-27 migration. Older entries below that name
+  `.wiki/` paths (e.g. the `git log --diff-filter=D` hint) refer to where the files
+  lived at the time.
 * **Change**: [Nightly sync](/architecture/nightly-sync.md) cron moved from
   `0 4 * * *` to `51 4 * * *`. Scheduled runs were starting 4.5–8 h late (08:22–11:45
   UTC); `:00` is GitHub's busiest slot. Recorded as a gotcha on that page, with the
